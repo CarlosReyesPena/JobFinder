@@ -1,21 +1,24 @@
 import sqlite3
 from datetime import datetime
 import os
+import bcrypt
+from contextlib import contextmanager
 
 class DatabaseManager:
     def __init__(self, db_path='database/jobfinder.db'):
         self.db_path = db_path
-        self._create_database()
 
-    def _create_database(self):
-        # Create the database file if it doesn't exist and enable foreign key constraints
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.close()
+    @contextmanager
+    def get_connection(self):
+        connection = sqlite3.connect(self.db_path)
+        connection.execute("PRAGMA foreign_keys = ON;")
+        try:
+            yield connection
+        finally:
+            connection.close()
 
     def execute_query(self, query, params=None):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA foreign_keys = ON;")  # Enable foreign key constraints for each connection
+        with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 if params:
@@ -31,8 +34,7 @@ class DatabaseManager:
                 raise sqlite3.Error(f"Erreur lors de l'exécution de la requête: {str(e)}")
 
     def fetch_one(self, query, params=None):
-        # Fetch a single record from the database
-        with sqlite3.connect(self.db_path) as conn:
+        with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 if params:
@@ -44,8 +46,7 @@ class DatabaseManager:
                 raise sqlite3.Error(f"Erreur lors de la récupération d'un enregistrement: {str(e)}")
 
     def fetch_all(self, query, params=None):
-        # Fetch all records from the database
-        with sqlite3.connect(self.db_path) as conn:
+        with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 if params:
@@ -56,36 +57,36 @@ class DatabaseManager:
             except sqlite3.Error as e:
                 raise sqlite3.Error(f"Erreur lors de la récupération de plusieurs enregistrements: {str(e)}")
 
-
+    def _create_database(self):
+        with self.get_connection():
+            pass
 class User(DatabaseManager):
     def __init__(self, db_path='database/jobfinder.db'):
         super().__init__(db_path)
         self._create_table()
 
     def _create_table(self):
-        # Create the users table with a primary key and unique constraints
         query = '''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
             email TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
+            password_hash TEXT,
             registration_date TEXT NOT NULL
         )
         '''
         self.execute_query(query)
 
-    def create(self, username, email, password_hash):
-        # Insert a new user into the users table
+    def create(self, username, email, password=None):
         query = '''
         INSERT INTO users (username, email, password_hash, registration_date)
         VALUES (?, ?, ?, ?)
         '''
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8') if password else None
         params = (username, email, password_hash, datetime.now().isoformat())
         return self.execute_query(query, params)
 
     def get(self, user_id):
-        # Retrieve a user by ID
         query = 'SELECT * FROM users WHERE id = ?'
         result = self.fetch_one(query, (user_id,))
         if result is None:
@@ -93,9 +94,14 @@ class User(DatabaseManager):
         return result
 
     def get_by_username(self, username):
-        # Retrieve a user by username
         query = 'SELECT * FROM users WHERE username = ?'
         return self.fetch_one(query, (username,))
+
+    def verify_password(self, user_id, password):
+        user = self.get(user_id)
+        if user[3] is None:  # Si l'utilisateur n'a pas de mot de passe
+            return True
+        return bcrypt.checkpw(password.encode('utf-8'), user[3].encode('utf-8'))
 
     def get_by_email(self, email):
         # Retrieve a user by email
@@ -371,16 +377,15 @@ class CoverLetter(BinaryFileManager):
     def get_latest_version(self, user_id, job_offer_id):
         # Retrieve the latest version of a cover letter for a specific user and job offer
         query = '''
-        SELECT * FROM cover_letters 
-        WHERE user_id = ? AND job_offer_id = ? 
-        ORDER BY creation_date DESC 
+        SELECT * FROM cover_letters
+        WHERE user_id = ? AND job_offer_id = ?
+        ORDER BY creation_date DESC
         LIMIT 1
         '''
         result = self.fetch_one(query, (user_id, job_offer_id))
         if result is None:
             raise ValueError(f"Aucune lettre de motivation trouvée pour l'utilisateur {user_id} et l'offre d'emploi {job_offer_id}")
         return result
-    
 class JobOffer(DatabaseManager):
     def __init__(self, db_path='database/jobfinder.db'):
         super().__init__(db_path)

@@ -218,7 +218,7 @@ def test_user_deletion_with_cascade(user, user_document, cover_letter, job_offer
                     print(f"Job preference {pref_id} correctly retained (belongs to a different user)")
             except ValueError as e:
                 print(f"Job preference {pref_id} successfully deleted in cascade: {str(e)}")
-    
+
     # Final verification
     final_users = user.list_all()
     assert len(final_users) == 0, "All users should have been deleted"
@@ -357,9 +357,8 @@ def test_database():
         credential_ids = test_user_site_credentials(user_site_credentials, user_ids)
         
         application_ids = test_user_application(user_application, user_ids, job_offer_ids)
-        
+      
         preference_ids = test_user_job_preference(user_job_preference, user_ids)
-        
         test_user_deletion_with_cascade(
             user, user_document, cover_letter, job_offer, saved_job, 
             user_site_credentials, user_application, user_job_preference,
