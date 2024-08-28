@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "agent_cover_letter"
+version = "0.1.0"
+description = "Agent-Cover-Letter using crewAI"
+authors = ["Your Name <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<=3.13"
+crewai = { extras = ["tools"], version = "^0.51.0" }
+
+[tool.poetry.scripts]
+agent_cover_letter = "agent_cover_letter.main:run"
+run_crew = "agent_cover_letter.main:run"
+train = "agent_cover_letter.main:train"
+replay = "agent_cover_letter.main:replay"
+test = "agent_cover_letter.main:test"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
