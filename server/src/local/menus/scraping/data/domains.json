@@ -1,0 +1,740 @@
+[
+    {
+        "name": "Administration / Secrétariat / Accueil",
+        "category_id": 605,
+        "subdomains": [
+            {
+                "name": "Employé(e) de commerce / Gestion administrative",
+                "category_id": 609
+            },
+            {
+                "name": "Assistant(e) / Assistant(e) de direction",
+                "category_id": 608
+            },
+            {
+                "name": "Office Manager",
+                "category_id": 610
+            },
+            {
+                "name": "Administration publique",
+                "category_id": 607
+            },
+            {
+                "name": "Accueil / Secrétariat",
+                "category_id": 606
+            }
+        ]
+    },
+    {
+        "name": "Banque / Economie",
+        "category_id": 630,
+        "subdomains": [
+            {
+                "name": "Back Office / Middle Office",
+                "category_id": 631
+            },
+            {
+                "name": "Compliance / Risk Management",
+                "category_id": 632
+            },
+            {
+                "name": "Crédit / Hypothèques",
+                "category_id": 635
+            },
+            {
+                "name": "Conseiller de clientèle / Front office",
+                "category_id": 634
+            },
+            {
+                "name": "Conseil en placement / Private Banking",
+                "category_id": 633
+            },
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 636
+            },
+            {
+                "name": "Porfolio - / Asset Management",
+                "category_id": 638
+            },
+            {
+                "name": "Marchés (Fonds / Titres / Devises / ...)",
+                "category_id": 637
+            }
+        ]
+    },
+    {
+        "name": "Bâtiment / Construction / Travaux publics",
+        "category_id": 639,
+        "subdomains": [
+            {
+                "name": "Architecture / Dessin technique",
+                "category_id": 640
+            },
+            {
+                "name": "Ingénieur du bâtiment",
+                "category_id": 647
+            },
+            {
+                "name": "Electricité",
+                "category_id": 646
+            },
+            {
+                "name": "Chauffage / Sanitaire / Ventilation",
+                "category_id": 642
+            },
+            {
+                "name": "Menuiserie / Charpente / Couverture / Ferblanterie",
+                "category_id": 649
+            },
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 645
+            },
+            {
+                "name": "Ouvrier / Ouvrier qualifié",
+                "category_id": 650
+            },
+            {
+                "name": "Maçonnerie",
+                "category_id": 648
+            },
+            {
+                "name": "Conduite d'engins de chantier",
+                "category_id": 644
+            },
+            {
+                "name": "Peintre / Plâtrier / Plaquiste",
+                "category_id": 651
+            },
+            {
+                "name": "Chef de chantier / Chef de travaux",
+                "category_id": 643
+            },
+            {
+                "name": "Carreleur / Poseur de revêtement de sol",
+                "category_id": 641
+            }
+        ]
+    },
+    {
+        "name": "Commercial / Vente",
+        "category_id": 652,
+        "subdomains": [
+            {
+                "name": "Callcenter / Vente par téléphone",
+                "category_id": 654
+            },
+            {
+                "name": "Service externe / Account Management",
+                "category_id": 657
+            },
+            {
+                "name": "Direction / Direction de projet / Key Account",
+                "category_id": 656
+            },
+            {
+                "name": "Commerce de détail / Responsable de rayon",
+                "category_id": 655
+            },
+            {
+                "name": "Administration des ventes / Assistanat commercial",
+                "category_id": 653
+            }
+        ]
+    },
+    {
+        "name": "Direction d'entreprise / d'un département",
+        "category_id": 658,
+        "subdomains": [
+            {
+                "name": "Direction d'entreprise / Stratégie",
+                "category_id": 659
+            },
+            {
+                "name": "Direction de filiale / d'un département",
+                "category_id": 660
+            }
+        ]
+    },
+    {
+        "name": "Artisanat / Autres professions manuelles",
+        "category_id": 611,
+        "subdomains": [
+            {
+                "name": "Métiers de bouche (Boucherie, Boulangerie…)",
+                "category_id": 616
+            },
+            {
+                "name": "Facility management / Nettoyage",
+                "category_id": 613
+            },
+            {
+                "name": "Agriculteur / Forestier",
+                "category_id": 612
+            },
+            {
+                "name": "Mode / Design / Création",
+                "category_id": 617
+            },
+            {
+                "name": "Fleuriste / Jardinier",
+                "category_id": 614
+            },
+            {
+                "name": "Serrurier",
+                "category_id": 618
+            },
+            {
+                "name": "Horloger / Bijoutier",
+                "category_id": 615
+            }
+        ]
+    },
+    {
+        "name": "Finances / Comptabilité / Controlling",
+        "category_id": 666,
+        "subdomains": [
+            {
+                "name": "Comptabilité / Fiduciaire",
+                "category_id": 669
+            },
+            {
+                "name": "Audit / Révision",
+                "category_id": 667
+            },
+            {
+                "name": "Cash Management / Trésorerie",
+                "category_id": 668
+            },
+            {
+                "name": "Contrôle de gestion",
+                "category_id": 670
+            },
+            {
+                "name": "Débits / Crédits",
+                "category_id": 671
+            },
+            {
+                "name": "Direction / Direction de projet / M&A",
+                "category_id": 672
+            },
+            {
+                "name": "Trust / Offshore",
+                "category_id": 673
+            }
+        ]
+    },
+    {
+        "name": "Soins & Beauté / Sport",
+        "category_id": 767,
+        "subdomains": [
+            {
+                "name": "Soins du corps / Wellness",
+                "category_id": 769
+            },
+            {
+                "name": "Coiffure / Cosmétiques",
+                "category_id": 768
+            },
+            {
+                "name": "Sport / Fitness",
+                "category_id": 770
+            }
+        ]
+    },
+    {
+        "name": "Santé / Médecine",
+        "category_id": 752,
+        "subdomains": [
+            {
+                "name": "Personnel de soins",
+                "category_id": 757
+            },
+            {
+                "name": "Laboratoire / Analyses",
+                "category_id": 755
+            },
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 753
+            },
+            {
+                "name": "Secrétariat médical / Assistanat",
+                "category_id": 761
+            },
+            {
+                "name": "Personnel médico-technique",
+                "category_id": 758
+            },
+            {
+                "name": "Médecine (Docteur, Dentiste…)",
+                "category_id": 756
+            },
+            {
+                "name": "Infirmier(-ère) / Sage-femme",
+                "category_id": 754
+            },
+            {
+                "name": "Physio- / Ergothérapeute",
+                "category_id": 759
+            },
+            {
+                "name": "Psychiatrie",
+                "category_id": 760
+            }
+        ]
+    },
+    {
+        "name": "Restauration / Hôtellerie / Tourisme",
+        "category_id": 745,
+        "subdomains": [
+            {
+                "name": "Cuisine",
+                "category_id": 746
+            },
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 747
+            },
+            {
+                "name": "Réception / Vente / Conciergerie",
+                "category_id": 748
+            },
+            {
+                "name": "Service en chambre / Housekeeping",
+                "category_id": 749
+            },
+            {
+                "name": "Tourisme / Agence de voyage",
+                "category_id": 751
+            },
+            {
+                "name": "Service en salle / Sommelier / Bar",
+                "category_id": 750
+            }
+        ]
+    },
+    {
+        "name": "Ressources humaines / Gestion du personnel",
+        "category_id": 737,
+        "subdomains": [
+            {
+                "name": "Coaching / Conseil carrière / Org. du développement",
+                "category_id": 739
+            },
+            {
+                "name": "Assistant(e) RH",
+                "category_id": 738
+            },
+            {
+                "name": "Human Ressources Manager",
+                "category_id": 742
+            },
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 741
+            },
+            {
+                "name": "Conseiller en personnel",
+                "category_id": 740
+            },
+            {
+                "name": "Recrutement / Sourcing",
+                "category_id": 743
+            },
+            {
+                "name": "Administration / Salaire",
+                "category_id": 744
+            }
+        ]
+    },
+    {
+        "name": "Informatique / Télécommunications",
+        "category_id": 702,
+        "subdomains": [
+            {
+                "name": "Business- / Requirement Analyst / Process Management",
+                "category_id": 703
+            },
+            {
+                "name": "Conseil / Direction / Direction de projet",
+                "category_id": 704
+            },
+            {
+                "name": "Data Warehouse / Business Intelligence / CRM",
+                "category_id": 706
+            },
+            {
+                "name": "Spécialiste base de données / Architecture",
+                "category_id": 712
+            },
+            {
+                "name": "ERP (Oracle, Sage, Infor, Microsoft Dynamics, ...)",
+                "category_id": 709
+            },
+            {
+                "name": "Helpdesk / Assistance / Formation",
+                "category_id": 710
+            },
+            {
+                "name": "Réseau / Sécurité / Hardware",
+                "category_id": 711
+            },
+            {
+                "name": "Spécialiste base SAP / modules SAP",
+                "category_id": 713
+            },
+            {
+                "name": "Consultant SAP / Chef de projet SAP",
+                "category_id": 705
+            },
+            {
+                "name": "Développement logiciel / Architecture logiciel",
+                "category_id": 707
+            },
+            {
+                "name": "Technicien système / Administration système",
+                "category_id": 714
+            },
+            {
+                "name": "Testing / Audit / Release Management",
+                "category_id": 715
+            },
+            {
+                "name": "Développement Web / Publishing / Design",
+                "category_id": 708
+            }
+        ]
+    },
+    {
+        "name": "Industrie / Production / Technique",
+        "category_id": 686,
+        "subdomains": [
+            {
+                "name": "SAV / Maintenance",
+                "category_id": 699
+            },
+            {
+                "name": "Energies alternatives / renouvelables",
+                "category_id": 692
+            },
+            {
+                "name": "CNC / Conduite de machines",
+                "category_id": 687
+            },
+            {
+                "name": "Mécanicien auto. / Electricien auto. / Carrossier",
+                "category_id": 696
+            },
+            {
+                "name": "Conception / CAO / FAO",
+                "category_id": 688
+            },
+            {
+                "name": "Electronique / Electrotechnique",
+                "category_id": 691
+            },
+            {
+                "name": "Ingénieur / R & D",
+                "category_id": 694
+            },
+            {
+                "name": "Environnement / Sécurité",
+                "category_id": 693
+            },
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 690
+            },
+            {
+                "name": "Ouvrier / Ouvrier spécialisé",
+                "category_id": 698
+            },
+            {
+                "name": "Mécanicien (Précision / Micro / Poly / ...)",
+                "category_id": 695
+            },
+            {
+                "name": "Opérateur de production",
+                "category_id": 697
+            },
+            {
+                "name": "Contrôle Qualité / Process",
+                "category_id": 689
+            },
+            {
+                "name": "Spécialiste en horlogerie",
+                "category_id": 700
+            },
+            {
+                "name": "Technico-commercial",
+                "category_id": 701
+            }
+        ]
+    },
+    {
+        "name": "Assurances",
+        "category_id": 619,
+        "subdomains": [
+            {
+                "name": "Sinistres et prestations",
+                "category_id": 624
+            },
+            {
+                "name": "Actuaire / Analyste / Mathématicien / Garantie",
+                "category_id": 620
+            },
+            {
+                "name": "Spécialiste Santé",
+                "category_id": 627
+            },
+            {
+                "name": "Spécialiste assurances de choses",
+                "category_id": 625
+            },
+            {
+                "name": "Spécialiste LPP & vie",
+                "category_id": 626
+            },
+            {
+                "name": "Chef d'agence / Agent général",
+                "category_id": 621
+            },
+            {
+                "name": "Conseiller en assurances",
+                "category_id": 622
+            },
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 623
+            }
+        ]
+    },
+    {
+        "name": "Droit / Fiscalité / Conseil",
+        "category_id": 661,
+        "subdomains": [
+            {
+                "name": "Assistanat (Droit / Fiscalité)",
+                "category_id": 662
+            },
+            {
+                "name": "Audit / Conseil",
+                "category_id": 663
+            },
+            {
+                "name": "Juriste / Avocat / Notaire",
+                "category_id": 665
+            },
+            {
+                "name": "Fiscaliste",
+                "category_id": 664
+            }
+        ]
+    },
+    {
+        "name": "Marketing / Médias / RP",
+        "category_id": 716,
+        "subdomains": [
+            {
+                "name": "Publicité",
+                "category_id": 724
+            },
+            {
+                "name": "Management marque / produit",
+                "category_id": 721
+            },
+            {
+                "name": "CRM / Data Mining / Étude de marché",
+                "category_id": 718
+            },
+            {
+                "name": "Communication / RP / Evènementiel",
+                "category_id": 717
+            },
+            {
+                "name": "Design / Graphisme",
+                "category_id": 719
+            },
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 720
+            },
+            {
+                "name": "Marketing",
+                "category_id": 722
+            },
+            {
+                "name": "Médiaplanneur",
+                "category_id": 723
+            }
+        ]
+    },
+    {
+        "name": "Autres métiers",
+        "category_id": 628,
+        "subdomains": [
+            {
+                "name": "Autres métiers",
+                "category_id": 629
+            }
+        ]
+    },
+    {
+        "name": "Pharmaceutique / Biotechnologie / Chimie",
+        "category_id": 728,
+        "subdomains": [
+            {
+                "name": "Biologie / Biotechnologie",
+                "category_id": 730
+            },
+            {
+                "name": "Chimie",
+                "category_id": 731
+            },
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 732
+            },
+            {
+                "name": "Pharmaceutique",
+                "category_id": 733
+            },
+            {
+                "name": "Pharmacie / Droguerie",
+                "category_id": 734
+            },
+            {
+                "name": "Production",
+                "category_id": 735
+            },
+            {
+                "name": "Affaires réglementaires",
+                "category_id": 729
+            },
+            {
+                "name": "Recherche & Développement / Laboratoire",
+                "category_id": 736
+            }
+        ]
+    },
+    {
+        "name": "Achat / Logistique",
+        "category_id": 598,
+        "subdomains": [
+            {
+                "name": "Import / Export / Transit",
+                "category_id": 601
+            },
+            {
+                "name": "Logistique / Supply Chain",
+                "category_id": 602
+            },
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 600
+            },
+            {
+                "name": "Achat / Approvisionnement",
+                "category_id": 599
+            },
+            {
+                "name": "Transport / Chauffeur",
+                "category_id": 604
+            },
+            {
+                "name": "Magasinier",
+                "category_id": 603
+            }
+        ]
+    },
+    {
+        "name": "Immobilier",
+        "category_id": 681,
+        "subdomains": [
+            {
+                "name": "Gérance / Location",
+                "category_id": 682
+            },
+            {
+                "name": "Promotion / Prospection",
+                "category_id": 684
+            },
+            {
+                "name": "Négociateur / Agent immobillier",
+                "category_id": 683
+            },
+            {
+                "name": "Services techniques / Concierge",
+                "category_id": 685
+            }
+        ]
+    },
+    {
+        "name": "Sécurité / Défense",
+        "category_id": 762,
+        "subdomains": [
+            {
+                "name": "Pompier / Sauveteur",
+                "category_id": 765
+            },
+            {
+                "name": "Militaire",
+                "category_id": 763
+            },
+            {
+                "name": "Policier / Gendarme / Garde frontière",
+                "category_id": 764
+            },
+            {
+                "name": "Sécurité / Surveillance",
+                "category_id": 766
+            }
+        ]
+    },
+    {
+        "name": "Négoce",
+        "category_id": 725,
+        "subdomains": [
+            {
+                "name": "Commodities",
+                "category_id": 726
+            },
+            {
+                "name": "Trade Finance",
+                "category_id": 727
+            }
+        ]
+    },
+    {
+        "name": "Formation / Pédagogie / Social",
+        "category_id": 674,
+        "subdomains": [
+            {
+                "name": "Direction / Direction de projet",
+                "category_id": 676
+            },
+            {
+                "name": "Musique / Culture / Arts",
+                "category_id": 679
+            },
+            {
+                "name": "Enseignant / Formateur",
+                "category_id": 678
+            },
+            {
+                "name": "Psychologie",
+                "category_id": 680
+            },
+            {
+                "name": "Assistance sociale",
+                "category_id": 675
+            },
+            {
+                "name": "Educateur spécialisé",
+                "category_id": 677
+            }
+        ]
+    }
+]

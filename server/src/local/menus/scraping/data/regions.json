@@ -1,0 +1,144 @@
+{
+    "regions": [
+        {
+            "name": "Canton de Vaud",
+            "region_id": 52,
+            "subregions": [
+                {
+                    "name": "La Côte (Vaud)",
+                    "region_id": 53
+                },
+                {
+                    "name": "Nord vaudois",
+                    "region_id": 54
+                },
+                {
+                    "name": "Région lausannoise",
+                    "region_id": 55
+                },
+                {
+                    "name": "Riviera - Chablais",
+                    "region_id": 56
+                }
+            ]
+        },
+        {
+            "name": "Canton de Genève",
+            "region_id": 34,
+            "subregions": [
+                {
+                    "name": "Rive droite (Genève)",
+                    "region_id": 35
+                },
+                {
+                    "name": "Rive gauche (Genève)",
+                    "region_id": 36
+                },
+                {
+                    "name": "Ville de Genève",
+                    "region_id": 37
+                }
+            ]
+        },
+        {
+            "name": "Canton d'Argovie",
+            "region_id": 27
+        },
+        {
+            "name": "Canton d'Appenzell Rh.-Int.",
+            "region_id": 28
+        },
+        {
+            "name": "Canton d'Appenzell Rh.-Ext.",
+            "region_id": 29
+        },
+        {
+            "name": "Canton de Berne",
+            "region_id": 30
+        },
+        {
+            "name": "Canton de Bâle-Campagne",
+            "region_id": 31
+        },
+        {
+            "name": "Canton de Bâle-Ville",
+            "region_id": 32
+        },
+        {
+            "name": "Canton de Fribourg",
+            "region_id": 33
+        },
+        {
+            "name": "Canton de Glaris",
+            "region_id": 38
+        },
+        {
+            "name": "Canton des Grisons",
+            "region_id": 39
+        },
+        {
+            "name": "Canton du Jura",
+            "region_id": 40
+        },
+        {
+            "name": "Canton de Lucerne",
+            "region_id": 41
+        },
+        {
+            "name": "Canton de Neuchâtel",
+            "region_id": 42
+        },
+        {
+            "name": "Canton de Nidwald",
+            "region_id": 43
+        },
+        {
+            "name": "Canton d'Obwald",
+            "region_id": 44
+        },
+        {
+            "name": "Canton de St. Gall",
+            "region_id": 45
+        },
+        {
+            "name": "Canton de Schaffhouse",
+            "region_id": 46
+        },
+        {
+            "name": "Canton de Soleure",
+            "region_id": 47
+        },
+        {
+            "name": "Canton de Schwytz",
+            "region_id": 48
+        },
+        {
+            "name": "Canton de Thurgovie",
+            "region_id": 49
+        },
+        {
+            "name": "Canton du Tessin",
+            "region_id": 50
+        },
+        {
+            "name": "Canton d'Uri",
+            "region_id": 51
+        },
+        {
+            "name": "Canton du Valais",
+            "region_id": 57
+        },
+        {
+            "name": "Canton de Zoug",
+            "region_id": 58
+        },
+        {
+            "name": "Canton de Zurich",
+            "region_id": 59
+        },
+        {
+            "name": "Autres pays",
+            "region_id": 60
+        }
+    ]
+}
