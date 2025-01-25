@@ -1,4 +1,4 @@
-# AutoApply
+# JobFinder
 
 Automated job application platform with AI-powered features. Currently supporting job boards in Switzerland, with more platforms coming soon.
 
@@ -22,7 +22,7 @@ Automated job application platform with AI-powered features. Currently supportin
 ```bash
 # Clone repository
 git clone https://github.com/CarlosReyesPena/JobFinder.git
-cd autoapply
+cd JobFinder/server
 
 # Create virtual environment
 python -m venv venv
@@ -38,20 +38,22 @@ echo "OPENAI_API_KEY=your_key
 GROQ_API_KEY=your_key" > .env
 
 # Run application
-python src/mainlocal.py
+cd src
+python mainlocal.py
 ```
 
 ## Project Structure
 
 ```
-server/
-├── src/
-│   ├── core/           # Configuration
-│   ├── data/           # Database
-│   ├── services/       # Business logic
-│   └── local/          # CLI interface
-├── requirements.txt
-└── README.md
+JobFinder/
+└── server/
+    ├── src/
+    │   ├── core/           # Configuration
+    │   ├── data/           # Database
+    │   ├── services/       # Business logic
+    │   └── local/          # CLI interface
+    ├── requirements.txt
+    └── README.md
 ```
 
 ## Built With
