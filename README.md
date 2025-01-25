@@ -22,7 +22,7 @@ Automated job application platform with AI-powered features. Currently supportin
 ```bash
 # Clone repository
 git clone https://github.com/CarlosReyesPena/JobFinder.git
-cd autoapply
+cd JobFinder
 
 # Create virtual environment
 python -m venv venv
