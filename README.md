@@ -1,4 +1,4 @@
-# AutoApply
+# JobFinder
 
 Automated job application platform with AI-powered features. Currently supporting job boards in Switzerland, with more platforms coming soon.
 
