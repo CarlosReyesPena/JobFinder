@@ -1,4 +1,4 @@
-# main.py
+# Entrypoint
 import logging
 import sys
 from local.local import LocalApp
