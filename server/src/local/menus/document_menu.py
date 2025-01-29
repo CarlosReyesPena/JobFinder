@@ -9,7 +9,7 @@ class DocumentMenu(BaseMenu):
         self.document_manager = DocumentManager(session)
         self.cover_manager = CoverLetterManager(session)
 
-    def display(self):
+    async def display(self):
         while True:
             self.print_header("Document Management")
             print("1. List User Documents")
@@ -20,21 +20,21 @@ class DocumentMenu(BaseMenu):
             choice = input("\nEnter your choice (1-4): ")
 
             if choice == '1':
-                self.list_documents()
+                await self.list_documents()
             elif choice == '2':
-                self.add_document()
+                await self.add_document()
             elif choice == '3':
-                self.delete_document()
+                await self.delete_document()
             elif choice == '4':
                 break
             else:
                 print("\nInvalid choice!")
                 self.wait_for_user()
 
-    def list_documents(self):
+    async def list_documents(self):
         try:
             user_id = int(input("\nEnter user ID: "))
-            documents = self.document_manager.get_user_documents(user_id)
+            documents = await self.document_manager.get_user_documents(user_id)
             print("\nUser Documents:")
             for doc in documents:
                 print(f"ID: {doc.id}, Name: {doc.name}, Type: {doc.document_type}")
@@ -42,7 +42,7 @@ class DocumentMenu(BaseMenu):
             print("Invalid user ID")
         self.wait_for_user()
 
-    def add_document(self):
+    async def add_document(self):
         try:
             user_id = int(input("\nEnter user ID: "))
 
@@ -74,7 +74,7 @@ class DocumentMenu(BaseMenu):
                 )[0]  # [0] returns only the file path
 
                 if file_path:  # If a file was selected
-                    doc = self.document_manager.add_document_from_path(user_id, file_path, doc_type)
+                    doc = await self.document_manager.add_document_from_path(user_id, file_path, doc_type)
                     print(f"\nDocument added successfully with ID: {doc.id}")
                 else:
                     print("\nNo file selected")
@@ -87,10 +87,10 @@ class DocumentMenu(BaseMenu):
 
         self.wait_for_user()
 
-    def delete_document(self):
+    async def delete_document(self):
         try:
             doc_id = int(input("\nEnter document ID to delete: "))
-            if self.document_manager.delete_document(doc_id):
+            if await self.document_manager.delete_document(doc_id):
                 print("Document deleted successfully")
             else:
                 print("Document not found")

@@ -20,6 +20,6 @@ class BaseMenu(ABC):
         input("\nPress Enter to continue...")
 
     @abstractmethod
-    def display(self):
+    async def display(self):
         """Display the menu and handle user input."""
         pass

@@ -9,7 +9,7 @@ class ScrapingMenu(BaseMenu):
         super().__init__(session)
         self.config = ScrapingConfig()
 
-    def display(self):
+    async def display(self):
         while True:
             self.print_header("Scraping Configuration")
             print("1. Set Search Term")
@@ -25,35 +25,35 @@ class ScrapingMenu(BaseMenu):
             choice = input("\nEnter your choice (1-9): ")
 
             if choice == '1':
-                self.set_search_term()
+                await self.set_search_term()
             elif choice == '2':
-                self.set_employment_grade()
+                await self.set_employment_grade()
             elif choice == '3':
-                self.set_publication_date()
+                await self.set_publication_date()
             elif choice == '4':
-                self.set_categories()
+                await self.set_categories()
             elif choice == '5':
-                self.set_regions()
+                await self.set_regions()
             elif choice == '6':
-                self.set_browsers()
+                await self.set_browsers()
             elif choice == '7':
-                self.show_configuration()
+                await self.show_configuration()
             elif choice == '8':
-                self.start_scraping()
+                await self.start_scraping()
             elif choice == '9':
                 break
             else:
                 print("\nInvalid choice!")
                 self.wait_for_user()
 
-    def set_search_term(self):
+    async def set_search_term(self):
         self.print_header("Set Search Term")
         term = input("Enter search term (press Enter to skip): ")
         self.config.term = term if term else None
         print(f"Search term set to: {self.config.term}")
         self.wait_for_user()
 
-    def set_employment_grade(self):
+    async def set_employment_grade(self):
         self.print_header("Set Employment Grade")
         try:
             print("Enter employment grade range (0-100)")
@@ -68,7 +68,7 @@ class ScrapingMenu(BaseMenu):
             print("Invalid input! Please enter numbers only.")
         self.wait_for_user()
 
-    def set_publication_date(self):
+    async def set_publication_date(self):
         self.print_header("Set Publication Date")
         dates = self.config.get_publication_dates()
         print("\nAvailable date ranges:")
@@ -84,7 +84,7 @@ class ScrapingMenu(BaseMenu):
             print("Invalid input! Please enter a number.")
         self.wait_for_user()
 
-    def set_categories(self):
+    async def set_categories(self):
         self.print_header("Set Categories")
         categories = self.config.get_categories()
         subcategories = self.config.get_subcategories()
@@ -129,7 +129,7 @@ class ScrapingMenu(BaseMenu):
             print("Entrée invalide! Veuillez entrer uniquement des nombres.")
         self.wait_for_user()
 
-    def set_regions(self):
+    async def set_regions(self):
         self.print_header("Sélection des Régions")
         hierarchy = self.config.get_region_hierarchy()
 
@@ -182,7 +182,7 @@ class ScrapingMenu(BaseMenu):
             print("Entrée invalide! Veuillez entrer uniquement des nombres.")
         self.wait_for_user()
 
-    def show_configuration(self):
+    async def show_configuration(self):
         self.print_header("Configuration Actuelle")
 
         # Configuration de base
@@ -238,7 +238,7 @@ class ScrapingMenu(BaseMenu):
         print(f"\nNombre de navigateurs: {self.config.max_browsers}")
         self.wait_for_user()
 
-    def set_browsers(self):
+    async def set_browsers(self):
         self.print_header("Set Number of Browsers")
         try:
             browsers = input("Enter number of browsers (1-20, default is 5): ")
@@ -253,13 +253,13 @@ class ScrapingMenu(BaseMenu):
             print("Invalid input! Please enter a number.")
         self.wait_for_user()
 
-    def start_scraping(self):
+    async def start_scraping(self):
         self.print_header("Start Scraping")
         confirm = input("Do you want to start scraping with the current configuration? (yes/no): ")
         if confirm.lower() == 'yes':
             print("\nStarting scraper...")
             scraper = JobScraper(self.session, max_browsers=self.config.max_browsers)
-            scraper.start_scraping(
+            await scraper.start_scraping(
                 term=self.config.term,
                 employment_grade_min=self.config.employment_grade_min,
                 employment_grade_max=self.config.employment_grade_max,

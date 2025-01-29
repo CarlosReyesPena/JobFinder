@@ -1,20 +1,21 @@
 from typing import Optional, List
 from datetime import datetime, timezone
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.application import Application
 
 
 class ApplicationManager:
-    def __init__(self, session: Session):
+    def __init__(self, session: AsyncSession):
         """
         Initializes the manager with a database session.
 
         Args:
-            session (Session): SQLModel database session.
+            session (AsyncSession): SQLModel database session.
         """
         self.session = session
 
-    def add_application(self, **kwargs) -> Application:
+    async def add_application(self, **kwargs) -> Application:
         """
         Adds a new job application.
 
@@ -37,19 +38,20 @@ class ApplicationManager:
         # Create and save the application
         application = Application(**kwargs)
         self.session.add(application)
-        self.session.commit()
+        await self.session.commit()
         return application
 
-    def get_applications(self) -> List[Application]:
+    async def get_applications(self) -> List[Application]:
         """
         Retrieves all job applications.
 
         Returns:
             List[Application]: A list of all applications in the database.
         """
-        return self.session.exec(select(Application)).all()
+        result = await self.session.execute(select(Application))
+        return result.scalars().all()
 
-    def get_application_by_id(self, application_id: int) -> Optional[Application]:
+    async def get_application_by_id(self, application_id: int) -> Optional[Application]:
         """
         Retrieves an application by its ID.
 
@@ -59,9 +61,9 @@ class ApplicationManager:
         Returns:
             Optional[Application]: The application if found, None otherwise.
         """
-        return self.session.get(Application, application_id)
+        return await self.session.get(Application, application_id)
 
-    def get_applications_by_user(self, user_id: int) -> List[Application]:
+    async def get_applications_by_user(self, user_id: int) -> List[Application]:
         """
         Retrieves all applications submitted by a specific user.
 
@@ -71,10 +73,12 @@ class ApplicationManager:
         Returns:
             List[Application]: A list of applications for the specified user.
         """
-        statement = select(Application).where(Application.user_id == user_id)
-        return self.session.exec(statement).all()
+        result = await self.session.execute(
+            select(Application).where(Application.user_id == user_id)
+        )
+        return result.scalars().all()
 
-    def get_applications_by_job(self, job_id: int) -> List[Application]:
+    async def get_applications_by_job(self, job_id: int) -> List[Application]:
         """
         Retrieves all applications submitted for a specific job.
 
@@ -84,10 +88,14 @@ class ApplicationManager:
         Returns:
             List[Application]: A list of applications for the specified job.
         """
-        statement = select(Application).where(Application.job_id == job_id)
-        return self.session.exec(statement).all()
+        result = await self.session.execute(
+            select(Application).where(Application.job_id == job_id)
+        )
+        return result.scalars().all()
 
-    def get_application_by_user_and_job(self, user_id: int, job_id: int) -> Optional[Application]:
+    async def get_application_by_user_and_job(
+        self, user_id: int, job_id: int
+    ) -> Optional[Application]:
         """
         Retrieves an application submitted by a specific user for a specific job.
 
@@ -98,12 +106,16 @@ class ApplicationManager:
         Returns:
             Optional[Application]: The application if found, None otherwise.
         """
-        statement = select(Application).where(
-            (Application.user_id == user_id) & (Application.job_id == job_id)
+        result = await self.session.execute(
+            select(Application).where(
+                (Application.user_id == user_id) & (Application.job_id == job_id)
+            )
         )
-        return self.session.exec(statement).first()
+        return result.scalar_one_or_none()
 
-    def update_application_status(self, application_id: int, new_status: str) -> Optional[Application]:
+    async def update_application_status(
+        self, application_id: int, new_status: str
+    ) -> Optional[Application]:
         """
         Updates the status of an application.
 
@@ -114,16 +126,16 @@ class ApplicationManager:
         Returns:
             Optional[Application]: The updated application if found, None otherwise.
         """
-        application = self.session.get(Application, application_id)
+        application = await self.get_application_by_id(application_id)
         if not application:
             raise ValueError(f"Application with ID {application_id} not found.")
 
         application.application_status = new_status
         self.session.add(application)
-        self.session.commit()
+        await self.session.commit()
         return application
 
-    def delete_application(self, application_id: int) -> bool:
+    async def delete_application(self, application_id: int) -> bool:
         """
         Deletes an application.
 
@@ -133,23 +145,23 @@ class ApplicationManager:
         Returns:
             bool: True if the application was deleted, False otherwise.
         """
-        application = self.session.get(Application, application_id)
+        application = await self.get_application_by_id(application_id)
         if not application:
             return False
 
-        self.session.delete(application)
-        self.session.commit()
+        await self.session.delete(application)
+        await self.session.commit()
         return True
 
-    def delete_all_applications(self) -> bool:
+    async def delete_all_applications(self) -> bool:
         """
         Deletes all applications.
 
         Returns:
             bool: True if all applications were deleted, False otherwise.
         """
-        applications = self.get_applications()
+        applications = await self.get_applications()
         for application in applications:
-            self.session.delete(application)
-        self.session.commit()
+            await self.session.delete(application)
+        await self.session.commit()
         return True

@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 class JobOffer(BaseModel, table=True):
     __tablename__ = "job_offer"
     id: Optional[int] = Field(default=None, primary_key=True)
-    external_id: str
+    external_id: str = Field(index=True, unique=True)
     company_name: Optional[str] = None
     job_title: Optional[str] = None
     job_description: str

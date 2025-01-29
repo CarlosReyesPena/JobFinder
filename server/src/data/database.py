@@ -1,8 +1,9 @@
 import platform
 from pathlib import Path
 import logging
-from sqlmodel import Session, create_engine, SQLModel
-from threading import Lock
+from sqlmodel import SQLModel
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, AsyncEngine
+import asyncio
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
@@ -13,69 +14,103 @@ class DatabaseManager:
     """Manages database initialization, configuration and deletion."""
 
     _instance = None  # Singleton for unique instance
-    _lock = Lock()  # Global lock for concurrent engine access
+    _lock = asyncio.Lock()  # Remplacer threading.Lock par asyncio.Lock
 
     def __new__(cls, echo: bool = False):
         if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super(DatabaseManager, cls).__new__(cls)
-                    cls._instance._initialized = False
+            instance = super(DatabaseManager, cls).__new__(cls)
+            instance.echo = echo
+            instance._initialized = False
+            cls._instance = instance
         return cls._instance
 
     def __init__(self, echo: bool = False):
         if not self._initialized:
             self.echo = echo
-            self.engine = self.init_db()
+            self.engine: AsyncEngine = None
             self._initialized = True
+            self.session_factory: SessionFactory = None
+            self.connection_pool: ConnectionPool = None
+            # Initialize database engine
+            asyncio.create_task(self.init_db())
 
-    def init_db(self):
-        """Initializes the database and returns the engine"""
+    async def init_db(self):
         try:
+            if self.engine is not None:
+                return  # Engine is already initialized
+
             db_path = get_db_path()
-            db_url = f"sqlite:///{db_path}"
+            db_url = f"sqlite+aiosqlite:///{db_path}"
 
-            logger.info(f"Database path: {db_path}")
+            # Simple SQLite configuration
+            self.engine = create_async_engine(
+                db_url,
+                echo=self.echo,
+                connect_args={"check_same_thread": False}
+            )
 
-            if db_path.exists():
-                logger.info(f"Existing database found: {db_url}")
-                return create_engine(db_url, echo=self.echo)
+            # Create tables only if they don't exist
+            async with self.engine.begin() as conn:
+                await conn.run_sync(SQLModel.metadata.create_all, checkfirst=True)
 
-            logger.info("Creating new database...")
-
-            engine = create_engine(db_url, echo=self.echo)
-            SQLModel.metadata.create_all(engine)
-            logger.info(f"New database initialized: {db_url}")
-            return engine
+            # Initialize components
+            self.session_factory = SessionFactory(self.engine)
+            self.connection_pool = ConnectionPool(self.engine)
+            await self.connection_pool.initialize()
 
         except Exception as e:
-            logger.error(f"DB initialization error: {e}")
-            raise
+            logger.error(f"Critical error: {str(e)}")
+            raise DatabaseInitializationError("Database initialization failed")
 
-    def delete_database(self):
+    async def delete_database(self):
         """Deletes the database."""
         try:
-            with self._lock:
-                if hasattr(self, 'engine'):
-                    self.engine.dispose()
+            async with self._lock: # Lock to prevent multiple instances from deleting the database
+                if self.engine:
+                    await self.engine.dispose()
                 db_path = get_db_path()
                 logger.info(f"Deleting database: {db_path}")
                 if db_path.exists():
-                    db_path.unlink()
+                    db_path.unlink(missing_ok=True)
                     logger.info("Database deleted.")
                     return True
                 else:
                     logger.warning("No database found.")
                     return False
         except Exception as e:
-            logger.error(f"Error while deleting database: {e}")
-            return False
+            logger.error(f"Échec suppression BDD: {str(e)}")
+            raise DatabaseError("Erreur lors de la suppression de la base")
 
-    def get_session(self):
-        """Returns a secure session with locking."""
-        with self._lock:
-            logger.info("Creating new session with lock.")
-            return Session(self.engine)
+    async def get_session(self) -> AsyncSession:
+        """Secure asynchronous session context"""
+        async with self._lock:
+            if not self.engine:
+                await self.init_db()
+            return AsyncSession(self.engine, expire_on_commit=False)
+
+    async def get_connection(self):
+        """Asynchronous connection acquisition"""
+        if not self.engine:
+            await self.init_db()
+        return await self.engine.connect()
+
+    async def release_connection(self, conn):
+        """Asynchronous connection release"""
+        await conn.close()
+
+    async def get_scoped_session(self):
+        """Session with automatic transaction scope management"""
+        if not self.engine:
+            await self.init_db()
+        session = AsyncSession(self.engine, expire_on_commit=False)
+        try:
+            yield session
+        except Exception as e:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
 
 def get_app_data_dir() -> Path:
     system = platform.system()
@@ -97,3 +132,39 @@ def get_db_path() -> Path:
     db_dir.mkdir(parents=True, exist_ok=True)
     return db_dir / "job_application.db"
 
+
+# Simplified connection management class
+class ConnectionPool:
+    def __init__(self, engine: AsyncEngine):
+        self.engine = engine
+
+    async def initialize(self):
+        pass  # SQLite doesn't need pool initialization
+
+    async def get_connection(self):
+        return await self.engine.connect()
+
+    async def release_connection(self, conn):
+        await conn.close()
+
+
+# Classe simplifiée pour la gestion des sessions
+class SessionFactory:
+    def __init__(self, engine: AsyncEngine):
+        self.engine = engine
+
+    async def get_session(self) -> AsyncSession:
+        return AsyncSession(self.engine, expire_on_commit=False)
+
+
+class DatabaseError(Exception):
+    """Base exception for database errors"""
+    pass
+
+
+class DatabaseInitializationError(DatabaseError):
+    pass
+
+
+class ConnectionPoolExhaustedError(DatabaseError):
+    pass

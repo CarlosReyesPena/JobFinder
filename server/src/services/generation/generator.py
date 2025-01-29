@@ -1,8 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Type, Any
-from openai import OpenAI
-from groq import Groq
-import instructor
+from typing import List, Optional
 import os
 from dotenv import load_dotenv
 from sqlmodel import Session
@@ -11,10 +8,9 @@ from data.managers.job_offer_manager import JobOfferManager
 from data.managers.cover_letter_manager import CoverLetterManager
 from data.models.cover_letter import CoverLetter
 from langdetect import detect
+from core.llm_manager import LLMManager
+from core.settings import settings
 
-load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 MAX_RECIPIENT_LINE_LENGTH = 28
 MAX_SUBJECT_LENGTH = 52
@@ -199,82 +195,13 @@ class CoverLetterResponse(BaseModel):
     conclusion: str
     closing: str
 
-class HybridLLMClient:
-    def __init__(self):
-        self.groq_client = instructor.from_groq(
-            Groq(api_key=GROQ_API_KEY),
-            mode=instructor.Mode.TOOLS
-        )
-        self.openai_client = OpenAI(api_key=OPENAI_API_KEY)
-        self.current_provider = "openai"
-    def switch_provider(self):
-        self.current_provider = "openai" if self.current_provider == "groq" else "groq"
-
-    def chat_completion_with_fallback(self, messages: List[dict], response_model: Type[BaseModel], max_retries: int = 2) -> Any:
-        for attempt in range(max_retries):
-            try:
-                if self.current_provider == "groq":
-                    response = self.groq_client.chat.completions.create(
-                        model="llama-3.1-70b-versatile",
-                        messages=messages,
-                        response_model=response_model,
-                        max_tokens=1024
-                    )
-                else:
-                    client = instructor.patch(self.openai_client)
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=messages,
-                        response_model=response_model,
-                        max_tokens=1024,
-                        temperature=0.7
-                    )
-
-                # Validate response structure
-                if not response:
-                    raise ValueError("Empty response received")
-
-                # Handle potential string responses
-                if isinstance(response, str):
-                    try:
-                        import json
-                        parsed = json.loads(response)
-                        response = response_model(**parsed)
-                    except json.JSONDecodeError as je:
-                        print(f"JSON parsing error: {je}")
-                        raise ValueError("Invalid response format")
-
-                # Validate fields
-                if isinstance(response, RecipientInfoResponse):
-                    response.company_name = response.company_name or None
-                    response.recipient = response.recipient or None
-                    response.address = response.address or None
-                elif isinstance(response, CoverLetterResponse):
-                    required_fields = ['subject', 'greeting', 'introduction',
-                                    'skills_experience', 'motivation',
-                                    'conclusion', 'closing']
-                    missing_fields = [field for field in required_fields
-                                    if not hasattr(response, field)]
-                    if missing_fields:
-                        raise ValueError(f"Missing required fields: {missing_fields}")
-
-                return response
-
-            except Exception as e:
-                print(f"Error with {self.current_provider}: {str(e)}")
-                if attempt < max_retries - 1:
-                    self.switch_provider()
-                    print(f"Switching to {self.current_provider}")
-                else:
-                    raise e
-
 class CoverLetterGenerator:
     def __init__(self, session: Session):
         self.session = session
         self.user_manager = UserManager(self.session)
         self.job_offer_manager = JobOfferManager(self.session)
         self.cover_letter_manager = CoverLetterManager(self.session)
-        self.llm_client = HybridLLMClient()
+        self.llm_client = LLMManager()
 
     def detect_language(self, text: str) -> str:
         try:
@@ -291,7 +218,7 @@ class CoverLetterGenerator:
                 total_length += len(value)
         return total_length <= MAX_TOTAL_LENGTH
 
-    def generate_recipient_info(self, job_description: str) -> Optional[RecipientInfoResponse]:
+    async def generate_recipient_info(self, job_description: str) -> Optional[RecipientInfoResponse]:
         language = self.detect_language(job_description)
 
         prompt = RECIPIENT_INFO_PROMPT.format(
@@ -301,20 +228,19 @@ class CoverLetterGenerator:
         )
 
         try:
-            completion = self.llm_client.chat_completion_with_fallback(
+            completion = await self.llm_client.create_completion_async(
+                response_model=RecipientInfoResponse,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE_RECIPIENT_INFO.format(
                         language=language
                     )},
                     {"role": "user", "content": prompt},
                 ],
-                response_model=RecipientInfoResponse
+                max_tokens=settings.DEFAULT_MAX_TOKENS
             )
 
-            recipient_info = completion.parsed if hasattr(completion, 'parsed') else completion
-
-            if self.validate_recipient_info(recipient_info):
-                return recipient_info
+            if self.validate_recipient_info(completion):
+                return completion
 
         except Exception as e:
             print(f"Error generating recipient info: {e}")
@@ -349,9 +275,9 @@ class CoverLetterGenerator:
             address=None
         )
 
-    def generate_cover_letter(self, user_id: int, job_id: int) -> Optional[CoverLetter]:
-        user = self.user_manager.get_user_by_id(user_id)
-        job_offer = self.job_offer_manager.get_job_offer_by_id(job_id)
+    async def generate_cover_letter(self, user_id: int, job_id: int) -> Optional[CoverLetter]:
+        user = await self.user_manager.get_user_by_id(user_id)
+        job_offer = await self.job_offer_manager.get_job_offer_by_id(job_id)
 
         if not user or not job_offer:
             print("User or job offer missing.")
@@ -366,7 +292,7 @@ class CoverLetterGenerator:
         )
 
         language = self.detect_language(job_description)
-        recipient_info = self.generate_recipient_info(job_description)
+        recipient_info = await self.generate_recipient_info(job_description)
 
         if not recipient_info:
             return None
@@ -374,20 +300,20 @@ class CoverLetterGenerator:
         messages = self.prepare_messages(user, job_description, language)
 
         try:
-            completion = self.llm_client.chat_completion_with_fallback(
+            completion = await self.llm_client.create_completion_async(
+                response_model=CoverLetterResponse,
                 messages=messages,
-                response_model=CoverLetterResponse
+                max_tokens=settings.DEFAULT_MAX_TOKENS,
+                temperature=settings.DEFAULT_TEMPERATURE
             )
 
-            cover_letter_response = completion.parsed if hasattr(completion, 'parsed') else completion
-
-            if not cover_letter_response or not self.validate_letter_length(cover_letter_response):
+            if not completion or not self.validate_letter_length(completion):
                 return None
 
             recipient_info_str = self.format_recipient_info(recipient_info)
 
-            return self.save_cover_letter(
-                user_id, job_id, cover_letter_response, recipient_info_str
+            return await self.save_cover_letter(
+                user_id, job_id, completion, recipient_info_str
             )
 
         except Exception as e:
@@ -430,10 +356,10 @@ class CoverLetterGenerator:
             lines.extend(recipient_info.address)
         return "\n".join(filter(None, lines))
 
-    def save_cover_letter(self, user_id: int, job_id: int,
-                         cover_letter_response: CoverLetterResponse,
-                         recipient_info: str) -> CoverLetter:
-        return self.cover_letter_manager.add_cover_letter(
+    async def save_cover_letter(self, user_id: int, job_id: int,
+                              cover_letter_response: CoverLetterResponse,
+                              recipient_info: str) -> CoverLetter:
+        return await self.cover_letter_manager.add_cover_letter(
             user_id=user_id,
             job_id=job_id,
             subject=cover_letter_response.subject,

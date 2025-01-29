@@ -3,6 +3,7 @@ from datetime import date
 import os
 import locale
 from io import BytesIO
+import asyncio
 
 from babel.dates import format_date
 from langdetect import detect
@@ -116,12 +117,12 @@ class PDFCoverLetterGenerator:
         filename = '_'.join(filter(None, filename.split()))
         return filename
 
-    def generate_cover_letter_pdf(self, user_id: int, job_id: int) -> Tuple[bool, str]:
+    async def generate_cover_letter_pdf(self, user_id: int, job_id: int) -> Tuple[bool, str]:
         """Generate a PDF cover letter, ensuring it is exactly one page."""
         # Get data from database
-        user = self.user_manager.get_user_by_id(user_id)
-        job_offer = self.job_offer_manager.get_job_offer_by_id(job_id)
-        cover_letter = self.cover_letter_manager.get_cover_letter_by_user_and_job_id(user_id, job_id)
+        user = await self.user_manager.get_user_by_id(user_id)
+        job_offer = await self.job_offer_manager.get_job_offer_by_id(job_id)
+        cover_letter = await self.cover_letter_manager.get_cover_letter_by_user_and_job_id(user_id, job_id)
 
         if not user or not job_offer or not cover_letter:
             return False, "Missing data for generating cover letter PDF."
@@ -158,15 +159,45 @@ class PDFCoverLetterGenerator:
             pdf_data = buffer.getvalue()
             num_pages = self._count_pdf_pages(pdf_data)
 
-            if num_pages == 1:  # Changed from <= 2 to == 1
+            if num_pages == 1:
                 # PDF is exactly one page, save it
-                self.cover_letter_manager.add_pdf_to_cover_letter(cover_letter.id, pdf_data)
+                await self.cover_letter_manager.add_pdf_to_cover_letter(cover_letter.id, pdf_data)
                 buffer.close()
                 return True, "Cover letter generated successfully"
 
             buffer.close()
 
         return False, "Could not fit cover letter to exactly one page even with minimum font size"
+
+    async def generate_cover_letters_batch(self, user_id: int, job_ids: list[int], max_concurrent: int = 3):
+        """Generate multiple cover letters concurrently."""
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def generate_with_semaphore(job_id: int):
+            async with semaphore:
+                return await self.generate_cover_letter_pdf(user_id, job_id)
+
+        tasks = [generate_with_semaphore(job_id) for job_id in job_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        successful = 0
+        failed = 0
+
+        for result in results:
+            if isinstance(result, Exception):
+                failed += 1
+            else:
+                success, _ = result
+                if success:
+                    successful += 1
+                else:
+                    failed += 1
+
+        return {
+            "successful": successful,
+            "failed": failed,
+            "total": len(job_ids)
+        }
 
     def _create_letter_content(self, data: dict, styles: dict) -> list:
         """Create the content elements for the PDF."""

@@ -1,5 +1,5 @@
 from typing import Optional, List, TYPE_CHECKING
-from sqlmodel import Field, Relationship
+from sqlmodel import Field, Relationship, SQLModel
 from . import BaseModel
 
 if TYPE_CHECKING:
@@ -15,7 +15,7 @@ class User(BaseModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     first_name: str
     last_name: str
-    email: str
+    email: str = Field(index=True, unique=True)
     password: str
     username: str
     preferences: Optional[str] = None
@@ -23,6 +23,7 @@ class User(BaseModel, table=True):
     reference_letter: Optional[str] = None
     contact_info: Optional[str] = None
     signature: Optional[bytes] = None
+    phone_number: str | None = None
 
     # Relationships with other tables
     if not TYPE_CHECKING:

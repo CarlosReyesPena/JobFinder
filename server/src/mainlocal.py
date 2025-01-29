@@ -1,6 +1,7 @@
 # Entrypoint
 import logging
 import sys
+import asyncio
 from local.local import LocalApp
 
 def setup_logging():
@@ -14,15 +15,13 @@ def setup_logging():
         ]
     )
 
-def main():
-    """Main entry point of the application."""
-    setup_logging()
+async def async_main():
+    """Async main entry point of the application."""
     logger = logging.getLogger(__name__)
-
     try:
         logger.info("Starting JobFinder application")
         app = LocalApp()
-        app.run()
+        await app.run()
         logger.info("Application terminated normally")
     except KeyboardInterrupt:
         logger.info("Application terminated by user")
@@ -31,6 +30,11 @@ def main():
         logger.critical(f"Fatal error occurred: {e}", exc_info=True)
         print(f"\nA fatal error occurred: {e}")
         sys.exit(1)
+
+def main():
+    """Main entry point of the application."""
+    setup_logging()
+    asyncio.run(async_main())
 
 if __name__ == "__main__":
     main()

@@ -1,26 +1,27 @@
-# backend/core/config.py
-import os
 from pydantic_settings import BaseSettings
-from functools import lru_cache
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 class Settings(BaseSettings):
-    API_VERSION: str = "1.0.0"
-    APP_NAME: str = "JobFinder"
-    DEBUG: bool = True
-    API_PORT: int = 8000
-    DATABASE_URL: str = "sqlite:///job_application.db"
+    """Configuration globale de l'application"""
 
-    # Tauri specific settings
-    TAURI_ALLOWED_ORIGINS: list = ["tauri://localhost", "tauri://localhost-tt"]
+    # API Keys
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 
-    # React development settings
-    REACT_DEV_SERVER: str = "http://localhost:3000"
+    # LLM Configuration
+    DEFAULT_MAX_TOKENS: int = 1024
+    DEFAULT_TEMPERATURE: float = 0.7
+
+    # Model names
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    GROQ_MODEL: str = "llama-3.1-70b-versatile"
 
     class Config:
         env_file = ".env"
+        case_sensitive = True
 
-@lru_cache()
-def get_settings():
-    return Settings()
+settings = Settings()
 
-settings = get_settings()

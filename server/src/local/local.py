@@ -1,5 +1,6 @@
 import sys
 import logging
+import asyncio
 from typing import Optional
 from data.database import DatabaseManager
 from .menus.database_menu import DatabaseMenu
@@ -25,20 +26,23 @@ class LocalApp:
         self.db: Optional[DatabaseManager] = None
         self.session = None
         self.menus = {}
+
+    async def initialize(self):
+        """Asynchronously initialize the application."""
         try:
-            self.setup_database()
+            await self.setup_database()
             self.init_menus()
             logger.info("LocalApp initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize LocalApp: {e}")
-            self.cleanup()
+            await self.cleanup()
             raise
 
-    def setup_database(self):
+    async def setup_database(self):
         """Setup database connection and session."""
         try:
             self.db = DatabaseManager()
-            self.session = self.db.get_session()
+            self.session = await self.db.get_session()
             logger.info("Database connection established")
         except Exception as e:
             logger.error(f"Database setup failed: {e}")
@@ -58,7 +62,7 @@ class LocalApp:
             logger.error(f"Menu initialization failed: {e}")
             raise
 
-    def display_main_menu(self):
+    async def display_main_menu(self):
         """Display the main menu and handle user input."""
         while True:
             try:
@@ -70,7 +74,7 @@ class LocalApp:
                     print("\nGoodbye!")
                     break
                 elif choice in self.menus:
-                    self.menus[choice].display()
+                    await self.menus[choice].display()
                 else:
                     print("\nInvalid choice! Please try again.")
                     input("\nPress Enter to continue...")
@@ -92,30 +96,31 @@ class LocalApp:
         print("4. Document Management")
         print("5. Exit")
 
-    def cleanup(self):
+    async def cleanup(self):
         """Cleanup resources before exiting."""
         if self.session:
             try:
-                self.session.close()
+                await self.session.close()
                 logger.info("Database session closed")
             except Exception as e:
                 logger.error(f"Error closing database session: {e}")
 
-    def run(self):
+    async def run(self):
         """Main entry point to run the application."""
         try:
-            self.display_main_menu()
+            await self.initialize()
+            await self.display_main_menu()
         except Exception as e:
             logger.error(f"Application error: {e}")
             raise
         finally:
-            self.cleanup()
+            await self.cleanup()
 
 def main():
     """Application entry point with error handling."""
     try:
         app = LocalApp()
-        app.run()
+        asyncio.run(app.run())
     except Exception as e:
         logger.critical(f"Fatal error: {e}")
         sys.exit(1)
