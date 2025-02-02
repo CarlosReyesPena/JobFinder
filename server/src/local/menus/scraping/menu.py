@@ -258,14 +258,14 @@ class ScrapingMenu(BaseMenu):
         confirm = input("Do you want to start scraping with the current configuration? (yes/no): ")
         if confirm.lower() == 'yes':
             print("\nStarting scraper...")
-            scraper = JobScraper(self.session, max_browsers=self.config.max_browsers)
-            await scraper.start_scraping(
-                term=self.config.term,
-                employment_grade_min=self.config.employment_grade_min,
-                employment_grade_max=self.config.employment_grade_max,
-                publication_date=self.config.publication_date,
-                category=self.config.category,
-                region=self.config.region
-            )
+            async with JobScraper(self.session, max_browsers=self.config.max_browsers) as scraper:
+                await scraper.start_scraping(
+                    term=self.config.term,
+                    employment_grade_min=self.config.employment_grade_min,
+                    employment_grade_max=self.config.employment_grade_max,
+                    publication_date=self.config.publication_date,
+                    category=self.config.category,
+                    region=self.config.region
+                    )
             print("Scraping completed!")
         self.wait_for_user()

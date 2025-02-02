@@ -3,12 +3,15 @@ from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.job_offer import JobOffer
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 class JobOfferManager:
     def __init__(self, session: AsyncSession):
         self.session = session
+        # Adding a lock to avoid concurrent operations using the same session
+        self._db_lock = asyncio.Lock()
 
     async def add_job_offer(self, **kwargs) -> Optional[JobOffer]:
         """
@@ -25,17 +28,18 @@ class JobOfferManager:
             if not kwargs.get(field):
                 raise ValueError(f"The field {field} is required.")
 
-        # Check if offer already exists
-        existing_offer = await self.get_job_offer_by_external_id(kwargs["external_id"])
-        if existing_offer:
-            logger.info(f"Job offer already exists: {kwargs['external_id']}")
-            return existing_offer
+        async with self._db_lock:
+            # Check if offer already exists using an internal non-locking helper
+            existing_offer = await self._get_job_offer_by_external_id_no_lock(kwargs["external_id"])
+            if existing_offer:
+                logger.info(f"Job offer already exists: {kwargs['external_id']}")
+                return existing_offer
 
-        # Create and add the offer
-        job_offer = JobOffer(**kwargs)
-        self.session.add(job_offer)
-        await self.session.commit()
-        return job_offer
+            # Create and add the offer
+            job_offer = JobOffer(**kwargs)
+            self.session.add(job_offer)
+            await self.session.commit()
+            return job_offer
 
     async def get_job_offers(self) -> List[JobOffer]:
         """
@@ -75,10 +79,11 @@ class JobOfferManager:
         Returns:
             Optional[JobOffer]: The found offer or None.
         """
-        result = await self.session.execute(
-            select(JobOffer).where(JobOffer.external_id == external_id)
-        )
-        return result.scalar_one_or_none()
+        async with self._db_lock:
+            result = await self.session.execute(
+                select(JobOffer).where(JobOffer.external_id == external_id)
+            )
+            return result.scalar_one_or_none()
 
     async def update_job_offer(self, external_id: int, **kwargs) -> Optional[JobOffer]:
         """
@@ -141,3 +146,21 @@ class JobOfferManager:
             await self.session.delete(job_offer)
         await self.session.commit()
         return True
+
+    async def external_id_exists(self, external_id: str) -> bool:
+        """
+        Checks if a job offer with the given external_id exists.
+        Args:
+            external_id (str): Unique identifier of the offer.
+        Returns:
+            bool: True if the job offer exists, False otherwise.
+        """
+        async with self._db_lock:
+            job_offer = await self._get_job_offer_by_external_id_no_lock(external_id)
+            return job_offer is not None
+
+    async def _get_job_offer_by_external_id_no_lock(self, external_id: str) -> Optional[JobOffer]:
+        result = await self.session.execute(
+            select(JobOffer).where(JobOffer.external_id == external_id)
+        )
+        return result.scalar_one_or_none()

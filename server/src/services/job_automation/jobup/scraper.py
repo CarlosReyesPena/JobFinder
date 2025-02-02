@@ -6,6 +6,7 @@ import asyncio
 import re
 import logging
 from collections import deque
+import uuid
 
 # Logging configuration
 logging.basicConfig(
@@ -19,8 +20,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class JobScraper:
-    def __init__(self, session: Session, base_url: str = "https://www.jobup.ch/fr/emplois/",
-                 max_browsers: int = 5, buffer_size: int = 50, debug_level: str = "INFO"):
+    def __init__(self, session: Session, language: str = "fr",
+                 max_browsers: int = 10, debug_level: str = "INFO"):
         """
         Initializes the scraper with a database session and managers.
 
@@ -28,20 +29,26 @@ class JobScraper:
             session (Session): SQLModel session for database operations.
             base_url (str): Base URL for job listings.
             max_browsers (int): Maximum number of browsers to run in parallel.
-            buffer_size (int): Size of the buffer for storing job offers temporarily.
         """
         self.session = session
         self.job_offer_manager = JobOfferManager(self.session)
 
-        self.base_url = base_url
-        self.search_params = {}  # Store initial search parameters
+        self.language = language
+        if language.lower() == "en":
+            self.base_url = "https://www.jobup.ch/en/jobs/"
+        else:
+            self.base_url = "https://www.jobup.ch/fr/emplois/"
+
+        # Store initial search parameters
+        self.search_params = {}
         self.max_browsers = max_browsers
-        self.page_lock = asyncio.Lock()  # Prevent multiple browsers from scraping the same page
         self.scraped_pages = set()  # Track already scraped pages
-        self.job_buffer = deque(maxlen=buffer_size)  # Circular buffer for job offers
-        self.buffer_lock = asyncio.Lock()
+        self.job_ids_buffer = deque()
+        self.job_ids_lock = asyncio.Lock()
+        self.listing_pages_finished = False
         self.playwright = None
         self.browsers = []
+        self.browser_sem = asyncio.Semaphore(self.max_browsers)
         # Configure logging level
         if hasattr(logging, debug_level.upper()):
             logger.setLevel(getattr(logging, debug_level.upper()))
@@ -51,9 +58,8 @@ class JobScraper:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        for browser in self.browsers:
-            await browser.close()
         await self.playwright.stop()
+        self.playwright = None
 
     def build_url(self, page: Optional[int] = None, jobid: Optional[str] = None, term: Optional[str] = None,
                   employment_grade_min: Optional[int] = None, employment_grade_max: Optional[int] = None,
@@ -83,186 +89,37 @@ class JobScraper:
             return f"{self.base_url}?{'&'.join(params)}"
         return self.base_url
 
-    def add_job_offers_to_buffer(self, job_offers_data):
-        async def _add_to_buffer():
-            async with self.buffer_lock:
-                self.job_buffer.extend(job_offers_data)
-        return _add_to_buffer()
-
-    async def process_buffer(self):
-        """
-        Processes the job offers stored in the buffer and saves them to the database.
-        """
-        while True:
-            async with self.buffer_lock:
-                while self.job_buffer:
-                    job_offer_data = self.job_buffer.popleft()
-                    if await self.job_offer_manager.add_job_offer(**job_offer_data):
-                        logger.info(f"Job offer added to database: {job_offer_data['external_id']}")
-            await asyncio.sleep(0.1)  # Reduce delay to process the buffer faster
-
     async def scrape_page(self, page_number: int):
-        browser = await self.playwright.chromium.launch(headless=True)
-        self.browsers.append(browser)
-        page = await browser.new_page()
-        search_params = {**self.search_params, 'page': page_number}
-        url = self.build_url(**{k: v for k, v in search_params.items() if v is not None})
-        logger.info(f"Navigating to page {page_number}...")
+        async with self.browser_sem:
+            browser = await self.playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            search_params = {**self.search_params, 'page': page_number}
+            url = self.build_url(**{k: v for k, v in search_params.items() if v is not None})
+            logger.info(f"Navigating to page {page_number}...")
 
-        try:
-            await page.goto(url)
-            await page.wait_for_load_state("load")
-            await page.wait_for_selector("div[data-cy='vacancy-serp-item']", state="attached", timeout=15000)
+            try:
+                await page.goto(url)
+                await page.wait_for_load_state("load")
+                await page.wait_for_selector("div[data-cy='vacancy-serp-item']", state="attached", timeout=15000)
 
-            job_links = await page.query_selector_all("div[data-cy='vacancy-serp-item-active'], div[data-cy='vacancy-serp-item']")
-            total_jobs = len(job_links)
-            logger.info(f"Total job panels found on page {page_number}: {total_jobs}")
+                job_elements = await page.query_selector_all("[data-cy^='serp-item-']")
+                job_ids = []
+                for elem in job_elements:
+                    data_cy = await elem.get_attribute("data-cy")
+                    if data_cy and data_cy.startswith("serp-item-"):
+                        candidate = data_cy[len("serp-item-"):]
+                        if self.is_valid_job_id(candidate):
+                            job_ids.append(candidate)
+                        else:
+                            logger.debug(f"Ignored invalid job id candidate: {candidate}")
+                logger.info(f"Job IDs found on page {page_number}: {job_ids}")
+                await self.add_job_ids_to_buffer(job_ids)
 
-            job_offers_data = []
-            for index in range(total_jobs):
-                try:
-                    job_link = job_links[index]
-                    if not job_link:
-                        continue
-
-                    logger.info(f"Clicking on job panel {index + 1} on page {page_number}...")
-                    await job_link.click()
-                    await page.wait_for_load_state("load")
-                    try:
-                        # Use short timeouts to avoid slowing down the process
-                        await page.wait_for_selector("[data-cy='vacancy-logo']", state="attached", timeout=3000)
-                    except Exception:
-                        logger.debug("Logo element not found, continuing anyway...")
-                    try:
-                        await page.wait_for_selector("[data-cy='vacancy-title']", state="attached", timeout=3000)
-                    except Exception:
-                        logger.debug("Title element not found, continuing anyway...")
-                    try:
-                        await page.wait_for_selector("[data-cy='vacancy-description']", state="attached", timeout=3000)
-                    except Exception:
-                        logger.debug("Description element not found, continuing anyway...")
-
-                    # Try to get job description with a more flexible approach
-                    description_selectors = [
-                        "[data-cy='vacancy-description']"  # Fallback to main article content if specific selectors fail
-                    ]
-
-                    job_description = None
-                    for selector in description_selectors:
-                        try:
-                            element = await page.query_selector(selector)
-                            if element:
-                                job_description = await element.inner_text()
-                                if job_description and len(job_description.strip()) > 0:
-                                    break
-                        except Exception:
-                            continue
-
-                    # If still no description, try getting all visible text from the main content area
-                    if not job_description:
-                        try:
-                            main_content = await page.query_selector("main") or await page.query_selector("article") or await page.query_selector(".content")
-                            if main_content:
-                                job_description = await main_content.inner_text()
-                        except Exception:
-                            pass
-
-                    # Flexible element extraction function
-                    async def get_element_text(selector):
-                        try:
-                            element = await page.query_selector(selector)
-                            if element:
-                                return await element.inner_text()
-                            else:
-                                return None
-                        except Exception:
-                            pass
-                        return None
-
-                    # Get job details with fallback selectors
-                    job_title = await get_element_text("[data-cy='vacancy-title']")
-                    company_name = await get_element_text("[data-cy='vacancy-logo']")
-                    publication_date = await get_element_text("[data-cy='info-publication']")
-                    activity_rate = await get_element_text("[data-cy='info-workload']")
-                    contract_type = await get_element_text("[data-cy='info-contract']")
-                    work_location = await get_element_text("[data-cy='info-location-link']")
-
-                    try:
-                        if work_location:
-                            if "Location" in work_location or "Place" in work_location:
-                                work_location = work_location.split(":")[-1].strip()
-                    except Exception:
-                        pass
-
-                    company_info = await get_element_text("[data-cy='vacancy-lead'] p")
-                    company_contact = await get_element_text("[data-cy='vacancy-contact']")
-
-                    # Get company URL
-                    company_url = "Not specified"
-                    try:
-                        url_element = await page.query_selector("[data-cy='company-url']")
-                        if url_element:
-                            company_url = await url_element.get_attribute("href") or "Not specified"
-                    except Exception:
-                        pass
-
-                    # Get categories
-                    categories = []
-                    try:
-                        category_elements = await page.query_selector_all("[data-cy='vacancy-meta'] a")
-                        for el in category_elements:
-                            text = await el.inner_text()
-                            if text.strip():
-                                categories.append(text)
-                    except Exception:
-                        pass
-
-                    # Check for quick apply
-                    quick_apply = False
-                    try:
-                        quick_apply_element = await page.query_selector("div[data-cy='vacancy-serp-item-active'] [data-cy='quick-apply']")
-                        quick_apply = bool(quick_apply_element)
-                    except Exception:
-                        pass
-
-                    # Get job ID from URL
-                    external_id = None
-                    try:
-                        if "jobid=" in page.url:
-                            external_id = page.url.split("jobid=")[-1]
-                    except Exception:
-                        continue
-
-                    if external_id and job_description:
-                        job_offer_data = {
-                            "external_id": external_id,
-                            "company_name": company_name,
-                            "job_title": job_title,
-                            "job_description": job_description,
-                            "job_link": page.url,
-                            "posted_date": publication_date,
-                            "work_location": work_location,
-                            "contract_type": contract_type,
-                            "activity_rate": activity_rate,
-                            "company_info": company_info,
-                            "company_contact": company_contact,
-                            "company_url": company_url,
-                            "categories": ", ".join(categories) if categories else None,
-                            "quick_apply": quick_apply
-                        }
-                        job_offers_data.append(job_offer_data)
-
-                except Exception as e:
-                    logger.error(f"Error scraping job on page {page_number}, index {index}: {str(e)}")
-                    continue
-
-            await self.add_job_offers_to_buffer(job_offers_data)
-
-        except Exception as e:
-            logger.error(f"Error processing page {page_number}: {str(e)}")
-        finally:
-            await page.close()
-            await browser.close()
+            except Exception as e:
+                logger.error(f"Error processing page {page_number}: {str(e)}")
+            finally:
+                await page.close()
+                await browser.close()
 
     async def start_scraping(self, term: Optional[str] = None, employment_grade_min: Optional[int] = None,
                           employment_grade_max: Optional[int] = None, publication_date: Optional[int] = None,
@@ -281,12 +138,6 @@ class JobScraper:
             'benefit': benefit,
             'region': region
         }
-        # Start buffer processing task
-        asyncio.create_task(self.process_buffer())
-
-        # Initialize playwright if not already done
-        if self.playwright is None:
-            self.playwright = await async_playwright().start()
 
         # Scan total number of available pages
         browser = await self.playwright.chromium.launch(headless=True)
@@ -320,19 +171,21 @@ class JobScraper:
             await page.close()
             await browser.close()
 
+        # Start detail workers before scraping pages
+        detail_workers = [asyncio.create_task(self.job_detail_worker()) for _ in range(5)]
+
         # Scrape pages concurrently
         tasks = []
         for current_page in range(1, max_page + 1):
-            async with self.page_lock:
-                if current_page not in self.scraped_pages:
-                    self.scraped_pages.add(current_page)
-                    tasks.append(self.scrape_page(current_page))
+            if current_page not in self.scraped_pages:
+                self.scraped_pages.add(current_page)
+                tasks.append(self.scrape_page(current_page))
 
         await asyncio.gather(*tasks)
+        self.listing_pages_finished = True
 
-        # Cleanup
-        await self.playwright.stop()
-        self.playwright = None
+        # Wait for detail workers to finish
+        await asyncio.gather(*detail_workers)
 
     async def get_element_text(self, page, selector):
         try:
@@ -341,21 +194,101 @@ class JobScraper:
         except Exception:
             return None
 
-    async def detect_max_pages(self, page):
+    # Method to check if a candidate job ID is a valid UUID
+    def is_valid_job_id(self, candidate: str) -> bool:
         try:
-            element = await page.query_selector('div.d_flex.ai_center.gap_s4')
-            if not element:
-                return 1
+            uuid.UUID(candidate)
+            return True
+        except ValueError:
+            return False
 
-            text_content = await element.inner_text()
-            numbers = [int(num) for num in re.findall(r'\d+', text_content)]
-            return max(numbers) if numbers else 1
-        except Exception as e:
-            logger.error(f"Error detecting max pages: {str(e)}")
-            return 1
+    async def add_job_ids_to_buffer(self, job_ids: list):
+        async with self.job_ids_lock:
+            self.job_ids_buffer.extend(job_ids)
 
-if __name__ == "__main__":
-    # Start scraping
-    logger.info("Starting job scraping...")
-    scraper = JobScraper(max_browsers=10)  # Set number of browsers to use in parallel
-    asyncio.run(scraper.start_scraping())
+    async def job_detail_worker(self):
+        while True:
+            async with self.job_ids_lock:
+                if not self.job_ids_buffer:
+                    if self.listing_pages_finished:
+                        break
+                    else:
+                        await asyncio.sleep(0.1)
+                        continue
+                job_id = self.job_ids_buffer.popleft()
+            if await self.job_offer_manager.external_id_exists(job_id):
+                logger.info(f"Job offer already exists for job_id: {job_id}")
+                continue
+            async with self.browser_sem:
+                browser = await self.playwright.chromium.launch(headless=True)
+                page = await browser.new_page()
+                detail_url = f"{self.base_url}detail/{job_id}/"
+                logger.info(f"Scraping detail page: {detail_url}")
+                try:
+                    await page.goto(detail_url)
+                    await page.wait_for_load_state("load")
+                    job_description = await self.get_element_text(page, "[data-cy='vacancy-description']")
+                    if not job_description:
+                        try:
+                            main_content = await page.query_selector("main") or await page.query_selector("article") or await page.query_selector(".content")
+                            if main_content:
+                                job_description = await main_content.inner_text()
+                        except Exception:
+                            pass
+                    job_title = await self.get_element_text(page, "[data-cy='vacancy-title']")
+                    company_name = await self.get_element_text(page, "[data-cy='vacancy-logo']") or await self.get_element_text(page, ".grid-area_company")
+                    publication_date = await self.get_element_text(page, "[data-cy='info-publication']")
+                    activity_rate = await self.get_element_text(page, "[data-cy='info-workload']")
+                    contract_type = await self.get_element_text(page, "[data-cy='info-contract']")
+                    work_location = await self.get_element_text(page, "[data-cy='info-location-link']") or await self.get_element_text(page, "li:has(svg path[d^='M12 12c']) .fw_semibold + span")
+                    if work_location:
+                        if "Location" in work_location or "Place" in work_location:
+                            work_location = work_location.split(":")[-1].strip()
+                    company_info = await self.get_element_text(page, "[data-cy='vacancy-lead'] p")
+                    company_contact = await self.get_element_text(page, "[data-cy='vacancy-contact']")
+                    company_url = "Not specified"
+                    try:
+                        url_element = await page.query_selector("[data-cy='company-url']")
+                        if url_element:
+                            company_url = await url_element.get_attribute("href") or "Not specified"
+                    except Exception:
+                        pass
+                    categories = []
+                    try:
+                        category_elements = await page.query_selector_all("[data-cy='vacancy-meta'] a")
+                        for el in category_elements:
+                            text = await el.inner_text()
+                            if text.strip():
+                                categories.append(text)
+                    except Exception:
+                        pass
+                    quick_apply = False
+                    try:
+                        quick_apply_element = await page.query_selector("[data-cy='quick-apply']")
+                        quick_apply = bool(quick_apply_element)
+                    except Exception:
+                        pass
+                    job_offer_data = {
+                        "external_id": job_id,
+                        "company_name": company_name,
+                        "job_title": job_title,
+                        "job_description": job_description,
+                        "job_link": detail_url,
+                        "posted_date": publication_date,
+                        "work_location": work_location,
+                        "contract_type": contract_type,
+                        "activity_rate": activity_rate,
+                        "company_info": company_info,
+                        "company_contact": company_contact,
+                        "company_url": company_url,
+                        "categories": ", ".join(categories) if categories else None,
+                        "quick_apply": quick_apply
+                    }
+                    if await self.job_offer_manager.add_job_offer(**job_offer_data):
+                        logger.info(f"Job offer added from detail page: {job_id}")
+                except Exception as e:
+                    logger.error(f"Error scraping job detail for {job_id}: {str(e)}")
+                finally:
+                    await page.close()
+                    await browser.close()
+        logger.info("Job detail worker finished processing.")
