@@ -7,7 +7,7 @@ from services.generation.generator import CoverLetterGenerator
 from services.generation.pdf_builder import PDFCoverLetterGenerator
 from services.job_automation.jobup.form_filler import FormFiller
 import asyncio
-from typing import List, Dict
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -31,6 +31,26 @@ class AutoApply:
         self.cover_letter_generator = CoverLetterGenerator(session)
         self.logger = logging.getLogger(self.__class__.__name__)
 
+    async def get_pending_quick_apply_jobs(self) -> List:
+        """
+        Get all quick_apply jobs that haven't been applied to yet.
+
+        Returns:
+            List of job offers that are quick_apply enabled and not yet applied to
+        """
+        job_offers = await self.job_offer_manager.get_job_offers_by_quick_apply()
+        pending_jobs = []
+
+        for job in job_offers:
+            existing = await self.application_manager.get_application_by_user_and_job(
+                user_id=self.user_id,
+                job_id=job.id
+            )
+            if not existing:
+                pending_jobs.append(job)
+
+        return pending_jobs
+
     async def process_single_job(self, job_offer) -> ApplicationResult:
         """Process a single job offer asynchronously."""
         result = ApplicationResult(
@@ -43,7 +63,6 @@ class AutoApply:
         try:
             self.logger.info(f"Processing job: {job_offer.job_title} at {job_offer.company_name}")
 
-            # Step 1: Generate cover letter
             cover_letter = await self.cover_letter_generator.generate_cover_letter(
                 user_id=self.user_id,
                 job_id=job_offer.id
@@ -54,7 +73,6 @@ class AutoApply:
                 result.error = "Cover letter generation failed"
                 return result
 
-            # Step 2: Generate PDF
             success, message = await self.pdf_cover_builder.generate_cover_letter_pdf(
                 user_id=self.user_id,
                 job_id=job_offer.id
@@ -65,7 +83,6 @@ class AutoApply:
                 result.error = f"PDF generation failed: {message}"
                 return result
 
-            # Step 3: Fill form
             form_filler = FormFiller(self.session, self.user_id)
             try:
                 await form_filler.fill_apply_form(job_offer.external_id)
@@ -73,8 +90,13 @@ class AutoApply:
                 result.status = "Failed"
                 result.error = f"Form filling failed: {str(e)}"
                 return result
+            finally:
+                # Ensure that any threads/resources used by form_filler are closed
+                if hasattr(form_filler, "close"):
+                    closing = form_filler.close()
+                    if asyncio.iscoroutine(closing):
+                        await closing
 
-            # Step 4: Update application status
             await self.application_manager.add_application(
                 user_id=self.user_id,
                 job_id=job_offer.id,
@@ -92,21 +114,15 @@ class AutoApply:
             result.error = error_msg
             return result
 
-    async def process_job_offers(self, max_applications: int = None, max_concurrent: int = 3) -> Dict:
-        """Process multiple job offers concurrently with improved error handling and reporting."""
-        # Get jobs and filter already applied
-        job_offers = await self.job_offer_manager.get_job_offers_by_quick_apply()
-        jobs_to_process = []
+    async def process_job_offers(self, max_applications: Optional[int] = None, max_concurrent: int = 3) -> Dict:
+        """
+        Process multiple job offers concurrently with improved error handling and reporting.
+        If max_applications is None, process all pending quick_apply jobs.
+        """
+        # Get all pending quick_apply jobs
+        jobs_to_process = await self.get_pending_quick_apply_jobs()
 
-        for job in job_offers:
-            existing = await self.application_manager.get_application_by_user_and_job(
-                user_id=self.user_id,
-                job_id=job.id
-            )
-            if not existing:
-                jobs_to_process.append(job)
-
-        if max_applications:
+        if max_applications is not None:
             jobs_to_process = jobs_to_process[:max_applications]
 
         if not jobs_to_process:
@@ -165,7 +181,72 @@ class AutoApply:
             "summary": summary
         }
 
-async def run_auto_apply(user_id: int, session: Session, max_applications: int = None, max_concurrent: int = 3):
+    async def check_and_process_pending_jobs(self) -> Dict:
+        """
+        Check how many quick_apply jobs exist, how many have been applied to,
+        and process the remaining ones.
+
+        Returns:
+            Dict containing:
+            - total_quick_apply: Total number of quick_apply jobs
+            - already_applied: Number of jobs already applied to
+            - pending: Number of jobs that were pending
+            - application_results: Results of processing pending applications
+        """
+        try:
+            # Get all quick apply jobs
+            all_quick_apply = await self.job_offer_manager.get_job_offers_by_quick_apply()
+            total_quick_apply = len(all_quick_apply)
+
+            # Get pending jobs (not yet applied to)
+            pending_jobs = await self.get_pending_quick_apply_jobs()
+            already_applied = total_quick_apply - len(pending_jobs)
+
+            self.logger.info(f"Found {total_quick_apply} quick_apply jobs total")
+            self.logger.info(f"Already applied to {already_applied} jobs")
+            self.logger.info(f"Found {len(pending_jobs)} pending jobs to process")
+
+            # Process pending jobs if any
+            if pending_jobs:
+                application_results = await self.process_job_offers()
+            else:
+                application_results = {
+                    "status": "completed",
+                    "message": "No pending jobs to process",
+                    "summary": {
+                        "total": 0,
+                        "successful": 0,
+                        "failed": 0,
+                        "errors": 0
+                    }
+                }
+
+            return {
+                "total_quick_apply": total_quick_apply,
+                "already_applied": already_applied,
+                "pending": len(pending_jobs),
+                "application_results": application_results
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error in check_and_process_pending_jobs: {e}")
+            return {
+                "total_quick_apply": 0,
+                "already_applied": 0,
+                "pending": 0,
+                "application_results": {
+                    "status": "error",
+                    "message": str(e),
+                    "summary": {
+                        "total": 0,
+                        "successful": 0,
+                        "failed": 0,
+                        "errors": 1
+                    }
+                }
+            }
+
+async def run_auto_apply(user_id: int, session: Session, max_applications: Optional[int] = None, max_concurrent: int = 3):
     """Utility function to run auto apply process."""
     auto_apply = AutoApply(session, user_id)
     return await auto_apply.process_job_offers(

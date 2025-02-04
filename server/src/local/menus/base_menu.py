@@ -1,6 +1,7 @@
 import os
 from abc import ABC, abstractmethod
 from sqlmodel import Session
+import asyncio
 
 class BaseMenu(ABC):
     def __init__(self, session: Session):
@@ -15,9 +16,9 @@ class BaseMenu(ABC):
         self.clear_screen()
         print(f"\n=== {title} ===\n")
 
-    def wait_for_user(self):
-        """Wait for user input before continuing."""
-        input("\nPress Enter to continue...")
+    async def wait_for_user(self, prompt: str = "Press Enter to continue..."):
+        # Use asyncio.to_thread to run the blocking input() in a separate thread
+        return await asyncio.to_thread(input, prompt)
 
     @abstractmethod
     async def display(self):

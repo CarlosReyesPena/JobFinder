@@ -572,7 +572,7 @@ class FormFiller:
         current_attempt = 0
 
         async with async_playwright() as p:
-            context = await self.browser_session.get_browser_context(p, headless=False)
+            context = await self.browser_session.get_browser_context(p, headless=True)
             page = await context.new_page()
             form_checker = FormChecker(page)
 
@@ -643,12 +643,10 @@ class FormFiller:
 
                 except Exception as e:
                     self.logger.error(f"Error during attempt {current_attempt}: {str(e)}")
-                    # If it's the last attempt, raise the exception
                     if current_attempt >= max_attempts:
                         raise
-                    # Otherwise, retry
                 finally:
-                    # Cleanup if exiting due to error
+
                     for temp_file in tempfiles:
                         await self.safe_file_cleanup(temp_file)
 
@@ -668,3 +666,10 @@ class FormFiller:
         except Exception as e:
             self.logger.error(f"Error while clicking submit button: {e}")
             raise
+
+    async def close(self):
+        """Cleanup resources held by FormFiller (e.g., close browser session)."""
+        if hasattr(self.browser_session, "close"):
+            closing = self.browser_session.close()
+            if asyncio.iscoroutine(closing):
+                await closing

@@ -27,7 +27,7 @@ class DatabaseMenu(BaseMenu):
                 break
             else:
                 print("\nInvalid choice!")
-                self.wait_for_user()
+                await self.wait_for_user()
 
     async def show_info(self):
         print("\nDatabase Information:")
@@ -35,7 +35,7 @@ class DatabaseMenu(BaseMenu):
         jobs = len(await self.job_manager.get_job_offers())
         print(f"Users: {users}")
         print(f"Job Offers: {jobs}")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def reset_database(self):
         confirm = input("\nWARNING: This will delete all data. Are you sure? (yes/no): ")
@@ -46,4 +46,4 @@ class DatabaseMenu(BaseMenu):
                 print("New database initialized")
             else:
                 print("Failed to reset database")
-            self.wait_for_user()
+            await self.wait_for_user()

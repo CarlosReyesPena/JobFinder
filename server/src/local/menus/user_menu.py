@@ -14,10 +14,11 @@ class UserMenu(BaseMenu):
             print("2. Add New User")
             print("3. Delete User")
             print("4. Add User Signature")
-            print("5. Menage Reference Letter")
-            print("6. Back to Main Menu")
+            print("5. Manage Reference Letter")
+            print("6. Manage User Preferences")
+            print("7. Back to Main Menu")
 
-            choice = input("\nEnter your choice (1-5): ")
+            choice = input("\nEnter your choice (1-7): ")
 
             if choice == '1':
                 await self.list_users()
@@ -30,17 +31,19 @@ class UserMenu(BaseMenu):
             elif choice == '5':
                 await self.menage_reference_letter()
             elif choice == '6':
+                await self.manage_preferences()
+            elif choice == '7':
                 break
             else:
                 print("\nInvalid choice!")
-                self.wait_for_user()
+                await self.wait_for_user()
 
     async def list_users(self):
         users = await self.user_manager.get_users()
         print("\nRegistered Users:")
         for user in users:
             print(f"ID: {user.id}, Name: {user.first_name} {user.last_name}, Email: {user.email}")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def add_user_signature(self):
         try:
@@ -66,7 +69,7 @@ class UserMenu(BaseMenu):
 
         except ValueError:
             print("Invalid user ID")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def menage_reference_letter(self):
         try:
@@ -89,7 +92,7 @@ class UserMenu(BaseMenu):
 
         except ValueError:
             print("Invalid user or job ID")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     def get_multiline_input(self, prompt: str) -> str:
         """
@@ -124,7 +127,7 @@ class UserMenu(BaseMenu):
             print(f"\nUser added successfully with ID: {user.id}")
         except Exception as e:
             print(f"\nError adding user: {e}")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def delete_user(self):
         try:
@@ -135,4 +138,33 @@ class UserMenu(BaseMenu):
                 print(f"User {user_id} not found")
         except ValueError:
             print("Invalid user ID")
-        self.wait_for_user()
+        await self.wait_for_user()
+
+    async def manage_preferences(self):
+        """Manage user preferences"""
+        try:
+            user_id = int(input("\nEnter user ID: "))
+            user = await self.user_manager.get_user_by_id(user_id)
+            if not user:
+                print(f"\nUser with ID {user_id} not found")
+                await self.wait_for_user()
+                return
+
+            print("\nCurrent preferences:")
+            if user.preferences:
+                print(user.preferences)
+            else:
+                print("No preferences set")
+
+            print("\nEnter new preferences:")
+            preferences_text = self.get_multiline_input("Enter your job preferences (skills, industries, roles, etc.)")
+
+            try:
+                await self.user_manager.add_preferences(user_id, preferences_text)
+                print(f"\nPreferences updated successfully for user ID: {user_id}")
+            except Exception as e:
+                print(f"\nError updating preferences: {e}")
+
+        except ValueError:
+            print("Invalid user ID")
+        await self.wait_for_user()

@@ -69,6 +69,24 @@ class UserManager:
         await self.session.commit()
         return user
 
+    async def add_preferences(self, user_id: int, preferences_text :str) -> Optional[User]:
+        """
+        Adds preferences to a user.
+        Args:
+            user_id (int): User ID.
+            kwargs (dict): Preferences to add.
+        Returns:
+            Optional[User]: The updated user.
+        """
+        user = await self.get_user_by_id(user_id)
+        if not user:
+            raise ValueError(f"Cannot add preferences to user with ID {user_id}: not found.")
+
+        user.preferences = preferences_text
+        self.session.add(user)
+        await self.session.commit()
+        return user
+
     async def add_reference_letter(self, user_id: int, reference_text :str) -> Optional[User]:
         """
         Adds a reference letter to a user.
