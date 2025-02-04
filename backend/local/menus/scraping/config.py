@@ -1,4 +1,3 @@
-# src/local/menus/scraping/config.py
 from dataclasses import dataclass, asdict, field
 from typing import List, Optional, Dict
 import json
@@ -20,20 +19,20 @@ class ScrapingConfig:
     def export_config(self, filepath: str) -> bool:
         """
         Export the current configuration to a JSON file.
-        
+
         Args:
             filepath: Path where to save the configuration
-            
+
         Returns:
             bool: True if export successful, False otherwise
         """
         try:
             # Convert the config to a dictionary
             config_dict = asdict(self)
-            
+
             # Ensure the directory exists
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            
+
             # Save to file
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(config_dict, f, indent=4)
@@ -45,17 +44,17 @@ class ScrapingConfig:
     def import_config(self, filepath: str) -> bool:
         """
         Import configuration from a JSON file.
-        
+
         Args:
             filepath: Path to the configuration file
-            
+
         Returns:
             bool: True if import successful, False otherwise
         """
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 config_dict = json.load(f)
-            
+
             # Update the current configuration
             for key, value in config_dict.items():
                 if hasattr(self, key):
