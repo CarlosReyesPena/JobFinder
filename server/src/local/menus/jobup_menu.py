@@ -52,7 +52,7 @@ class JobUpMenu(BaseMenu):
                 break
             else:
                 print("\nInvalid choice!")
-                self.wait_for_user()
+                await self.wait_for_user()
 
     async def login_jobup(self):
         try:
@@ -62,23 +62,23 @@ class JobUpMenu(BaseMenu):
             print(f"Login result: {message}")
         except ValueError:
             print("Invalid user ID")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def delete_job_offers(self):
         await self.job_manager.delete_all_job_offers()
         print("\nAll job offers have been deleted.")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def delete_apply_forms(self):
         await self.apply_form_manager.delete_all_apply_forms()
         print("\nAll apply form have been deleted.")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def reset_postulation_data(self):
         await self.application_manager.delete_all_applications()
         await self.cover_letter_manager.delete_all_cover_letters()
         print("\nAll postulation data has been reset.")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def apply_to_job(self):
         try:
@@ -90,7 +90,7 @@ class JobUpMenu(BaseMenu):
             print("Invalid ID format")
         except Exception as e:
             print(f"Error during application: {e}")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def create_apply_form(self):
         user_id = int(input("\nEnter user ID: "))
@@ -133,7 +133,7 @@ class JobUpMenu(BaseMenu):
             print("Form data created successfully")
         else:
             print("Failed to create form data")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def list_jobs(self):
         jobs = await self.job_manager.get_job_offers()
@@ -145,4 +145,4 @@ class JobUpMenu(BaseMenu):
             print(f"Location: {job.work_location}")
             print(f"Quick Apply: {'Yes' if job.quick_apply else 'No'}")
             print("-" * 50)
-        self.wait_for_user()
+        await self.wait_for_user()

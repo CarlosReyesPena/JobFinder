@@ -27,8 +27,9 @@ class JobScraper:
 
         Args:
             session (Session): SQLModel session for database operations.
-            base_url (str): Base URL for job listings.
+            language (str): Language for the job listings.
             max_browsers (int): Maximum number of browsers to run in parallel.
+            debug_level (str): Logging level.
         """
         self.session = session
         self.job_offer_manager = JobOfferManager(self.session)
@@ -54,10 +55,16 @@ class JobScraper:
             logger.setLevel(getattr(logging, debug_level.upper()))
 
     async def __aenter__(self):
+        """
+        Starts the Playwright context.
+        """
         self.playwright = await async_playwright().start()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """
+        Stops the Playwright context.
+        """
         await self.playwright.stop()
         self.playwright = None
 
@@ -65,6 +72,12 @@ class JobScraper:
                   employment_grade_min: Optional[int] = None, employment_grade_max: Optional[int] = None,
                   publication_date: Optional[int] = None, category: Optional[List[int]] = None,
                   benefit: Optional[int] = None, region: Optional[List[int]] = None) -> str:
+        """
+        Constructs a URL with the given parameters.
+
+        Returns:
+            str: The constructed URL.
+        """
         params = []
         if page:
             params.append(f"page={page}")
@@ -90,12 +103,18 @@ class JobScraper:
         return self.base_url
 
     async def scrape_page(self, page_number: int):
+        """
+        Scrapes job IDs from a given page number.
+
+        Args:
+            page_number (int): The page number to scrape.
+        """
         async with self.browser_sem:
             browser = await self.playwright.chromium.launch(headless=True)
             page = await browser.new_page()
             search_params = {**self.search_params, 'page': page_number}
             url = self.build_url(**{k: v for k, v in search_params.items() if v is not None})
-            logger.info(f"Navigating to page {page_number}...")
+            logger.info("Navigating to page %d...", page_number)
 
             try:
                 await page.goto(url)
@@ -111,12 +130,12 @@ class JobScraper:
                         if self.is_valid_job_id(candidate):
                             job_ids.append(candidate)
                         else:
-                            logger.debug(f"Ignored invalid job id candidate: {candidate}")
-                logger.info(f"Job IDs found on page {page_number}: {job_ids}")
+                            logger.debug("Ignored invalid job id candidate: %s", candidate)
+                logger.info("Job IDs found on page %d: %s", page_number, job_ids)
                 await self.add_job_ids_to_buffer(job_ids)
 
             except Exception as e:
-                logger.error(f"Error processing page {page_number}: {str(e)}")
+                logger.error("Error processing page %d: %s", page_number, str(e))
             finally:
                 await page.close()
                 await browser.close()
@@ -188,14 +207,32 @@ class JobScraper:
         await asyncio.gather(*detail_workers)
 
     async def get_element_text(self, page, selector):
+        """
+        Retrieves the inner text of an element specified by a selector.
+
+        Args:
+            page: The page object.
+            selector (str): The CSS selector for the element.
+
+        Returns:
+            str: The inner text of the element, or None if not found.
+        """
         try:
             element = await page.query_selector(selector)
             return await element.inner_text() if element else None
         except Exception:
             return None
 
-    # Method to check if a candidate job ID is a valid UUID
     def is_valid_job_id(self, candidate: str) -> bool:
+        """
+        Checks if a candidate job ID is a valid UUID.
+
+        Args:
+            candidate (str): The candidate job ID.
+
+        Returns:
+            bool: True if valid, False otherwise.
+        """
         try:
             uuid.UUID(candidate)
             return True
@@ -203,10 +240,19 @@ class JobScraper:
             return False
 
     async def add_job_ids_to_buffer(self, job_ids: list):
+        """
+        Adds job IDs to the buffer.
+
+        Args:
+            job_ids (list): List of job IDs to add.
+        """
         async with self.job_ids_lock:
             self.job_ids_buffer.extend(job_ids)
 
     async def job_detail_worker(self):
+        """
+        Processes job detail pages using job IDs from the buffer.
+        """
         while True:
             async with self.job_ids_lock:
                 if not self.job_ids_buffer:
@@ -217,13 +263,13 @@ class JobScraper:
                         continue
                 job_id = self.job_ids_buffer.popleft()
             if await self.job_offer_manager.external_id_exists(job_id):
-                logger.info(f"Job offer already exists for job_id: {job_id}")
+                logger.info("Job offer already exists for job_id: %s", job_id)
                 continue
             async with self.browser_sem:
                 browser = await self.playwright.chromium.launch(headless=True)
                 page = await browser.new_page()
                 detail_url = f"{self.base_url}detail/{job_id}/"
-                logger.info(f"Scraping detail page: {detail_url}")
+                logger.info("Scraping detail page: %s", detail_url)
                 try:
                     await page.goto(detail_url)
                     await page.wait_for_load_state("load")
@@ -264,7 +310,7 @@ class JobScraper:
                         pass
                     quick_apply = False
                     try:
-                        quick_apply_element = await page.query_selector("[data-cy='quick-apply']")
+                        quick_apply_element = await page.query_selector("[data-cy='dynamic-application-button']")
                         quick_apply = bool(quick_apply_element)
                     except Exception:
                         pass
@@ -287,7 +333,7 @@ class JobScraper:
                     if await self.job_offer_manager.add_job_offer(**job_offer_data):
                         logger.info(f"Job offer added from detail page: {job_id}")
                 except Exception as e:
-                    logger.error(f"Error scraping job detail for {job_id}: {str(e)}")
+                    logger.error("Error scraping job detail for %s: %s", job_id, str(e))
                 finally:
                     await page.close()
                     await browser.close()

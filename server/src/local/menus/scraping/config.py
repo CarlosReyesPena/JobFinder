@@ -1,5 +1,5 @@
 # src/local/menus/scraping/config.py
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, field
 from typing import List, Optional, Dict
 import json
 import os
@@ -15,6 +15,55 @@ class ScrapingConfig:
     benefit: Optional[int] = None
     region: Optional[List[int]] = None
     max_browsers: int = 5
+    keywords: List[str] = field(default_factory=list)  # Store the keywords in the config
+
+    def export_config(self, filepath: str) -> bool:
+        """
+        Export the current configuration to a JSON file.
+        
+        Args:
+            filepath: Path where to save the configuration
+            
+        Returns:
+            bool: True if export successful, False otherwise
+        """
+        try:
+            # Convert the config to a dictionary
+            config_dict = asdict(self)
+            
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            
+            # Save to file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(config_dict, f, indent=4)
+            return True
+        except Exception as e:
+            print(f"Error exporting configuration: {e}")
+            return False
+
+    def import_config(self, filepath: str) -> bool:
+        """
+        Import configuration from a JSON file.
+        
+        Args:
+            filepath: Path to the configuration file
+            
+        Returns:
+            bool: True if import successful, False otherwise
+        """
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                config_dict = json.load(f)
+            
+            # Update the current configuration
+            for key, value in config_dict.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+            return True
+        except Exception as e:
+            print(f"Error importing configuration: {e}")
+            return False
 
     @staticmethod
     def _load_json(filename: str) -> Dict:

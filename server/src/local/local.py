@@ -7,6 +7,7 @@ from .menus.database_menu import DatabaseMenu
 from .menus.user_menu import UserMenu
 from .menus.jobup_menu import JobUpMenu
 from .menus.document_menu import DocumentMenu
+from .menus.keyword_menu import KeywordMenu
 
 # Logging configuration
 logging.basicConfig(
@@ -55,7 +56,8 @@ class LocalApp:
                 '1': DatabaseMenu(self.session),
                 '2': UserMenu(self.session),
                 '3': JobUpMenu(self.session),
-                '4': DocumentMenu(self.session)
+                '4': DocumentMenu(self.session),
+                '5': KeywordMenu(self.session)
             }
             logger.info("All menus initialized")
         except Exception as e:
@@ -68,9 +70,9 @@ class LocalApp:
             try:
                 self.menus['1'].clear_screen()  # Using any menu's clear_screen method
                 self._print_main_menu()
-                choice = input("\nEnter your choice (1-5): ").strip()
+                choice = input("\nEnter your choice (1-6): ").strip()
 
-                if choice == '5':
+                if choice == '6':
                     print("\nGoodbye!")
                     break
                 elif choice in self.menus:
@@ -94,16 +96,17 @@ class LocalApp:
         print("2. User Management")
         print("3. JobUp Operations")
         print("4. Document Management")
-        print("5. Exit")
+        print("5. Job Search Keywords")
+        print("6. Exit")
 
     async def cleanup(self):
         """Cleanup resources before exiting."""
         if self.session:
-            try:
-                await self.session.close()
-                logger.info("Database session closed")
-            except Exception as e:
-                logger.error(f"Error closing database session: {e}")
+            await self.session.close()
+            self.session = None
+        if self.db:
+            await self.db.close()
+            self.db = None
 
     async def run(self):
         """Main entry point to run the application."""

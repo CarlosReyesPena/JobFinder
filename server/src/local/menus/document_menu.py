@@ -29,7 +29,7 @@ class DocumentMenu(BaseMenu):
                 break
             else:
                 print("\nInvalid choice!")
-                self.wait_for_user()
+                await self.wait_for_user()
 
     async def list_documents(self):
         try:
@@ -40,7 +40,7 @@ class DocumentMenu(BaseMenu):
                 print(f"ID: {doc.id}, Name: {doc.name}, Type: {doc.document_type}")
         except ValueError:
             print("Invalid user ID")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def add_document(self):
         try:
@@ -85,7 +85,7 @@ class DocumentMenu(BaseMenu):
         except Exception as e:
             print(f"Error adding document: {e}")
 
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def delete_document(self):
         try:
@@ -96,4 +96,4 @@ class DocumentMenu(BaseMenu):
                 print("Document not found")
         except ValueError:
             print("Invalid document ID")
-        self.wait_for_user()
+        await self.wait_for_user()

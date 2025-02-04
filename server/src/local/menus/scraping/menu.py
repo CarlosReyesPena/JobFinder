@@ -3,6 +3,11 @@ from typing import List
 from ...menus.base_menu import BaseMenu
 from .config import ScrapingConfig
 from services.job_automation.jobup.scraper import JobScraper
+from rich.console import Console
+from rich import print as rprint
+import os
+
+console = Console()
 
 class ScrapingMenu(BaseMenu):
     def __init__(self, session):
@@ -19,10 +24,12 @@ class ScrapingMenu(BaseMenu):
             print("5. Set Regions")
             print("6. Set Number of Browsers")
             print("7. Show Current Configuration")
-            print("8. Start Scraping")
-            print("9. Back to Main Menu")
+            print("8. Export Configuration")
+            print("9. Import Configuration")
+            print("10. Start Scraping")
+            print("11. Back to Main Menu")
 
-            choice = input("\nEnter your choice (1-9): ")
+            choice = input("\nEnter your choice (1-11): ")
 
             if choice == '1':
                 await self.set_search_term()
@@ -39,19 +46,60 @@ class ScrapingMenu(BaseMenu):
             elif choice == '7':
                 await self.show_configuration()
             elif choice == '8':
-                await self.start_scraping()
+                await self.export_configuration()
             elif choice == '9':
+                await self.import_configuration()
+            elif choice == '10':
+                await self.start_scraping()
+            elif choice == '11':
                 break
             else:
                 print("\nInvalid choice!")
-                self.wait_for_user()
+                await self.wait_for_user()
+
+    async def export_configuration(self):
+        """Export the current configuration to a JSON file."""
+        self.print_header("Export Configuration")
+        
+        # Get the export path
+        default_path = os.path.join(os.getcwd(), "scraping_config.json")
+        filepath = input(f"Enter export path (default: {default_path}): ").strip()
+        if not filepath:
+            filepath = default_path
+
+        # Export the configuration
+        if self.config.export_config(filepath):
+            console.print(f"[green]Configuration exported successfully to: {filepath}[/green]")
+        else:
+            console.print("[red]Failed to export configuration[/red]")
+        
+        await self.wait_for_user()
+
+    async def import_configuration(self):
+        """Import configuration from a JSON file."""
+        self.print_header("Import Configuration")
+        
+        # Get the import path
+        filepath = input("Enter the path to the configuration file: ").strip()
+        if not filepath:
+            console.print("[red]No file path provided[/red]")
+            await self.wait_for_user()
+            return
+
+        # Import the configuration
+        if self.config.import_config(filepath):
+            console.print(f"[green]Configuration imported successfully from: {filepath}[/green]")
+        else:
+            console.print("[red]Failed to import configuration[/red]")
+        
+        await self.wait_for_user()
 
     async def set_search_term(self):
         self.print_header("Set Search Term")
         term = input("Enter search term (press Enter to skip): ")
         self.config.term = term if term else None
         print(f"Search term set to: {self.config.term}")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def set_employment_grade(self):
         self.print_header("Set Employment Grade")
@@ -66,7 +114,7 @@ class ScrapingMenu(BaseMenu):
             print(f"Employment grade range set to: {self.config.employment_grade_min}-{self.config.employment_grade_max}")
         except ValueError:
             print("Invalid input! Please enter numbers only.")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def set_publication_date(self):
         self.print_header("Set Publication Date")
@@ -82,7 +130,7 @@ class ScrapingMenu(BaseMenu):
                 print(f"Publication date set to: {dates.get(self.config.publication_date)}")
         except ValueError:
             print("Invalid input! Please enter a number.")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def set_categories(self):
         self.print_header("Set Categories")
@@ -127,7 +175,7 @@ class ScrapingMenu(BaseMenu):
 
         except ValueError:
             print("Entrée invalide! Veuillez entrer uniquement des nombres.")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def set_regions(self):
         self.print_header("Sélection des Régions")
@@ -180,7 +228,7 @@ class ScrapingMenu(BaseMenu):
 
         except ValueError:
             print("Entrée invalide! Veuillez entrer uniquement des nombres.")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def show_configuration(self):
         self.print_header("Configuration Actuelle")
@@ -225,7 +273,7 @@ class ScrapingMenu(BaseMenu):
                             print(f"    - {region_data['subregions'][sub_id]}")
 
         print(f"\nNombre de navigateurs: {self.config.max_browsers}")
-        self.wait_for_user()
+        await self.wait_for_user()
         # Affichage des régions
         if self.config.region:
             print("\nRégions sélectionnées:")
@@ -236,7 +284,7 @@ class ScrapingMenu(BaseMenu):
             print("\nRégions: Non définies")
 
         print(f"\nNombre de navigateurs: {self.config.max_browsers}")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def set_browsers(self):
         self.print_header("Set Number of Browsers")
@@ -251,7 +299,7 @@ class ScrapingMenu(BaseMenu):
                     print("Number must be between 1 and 20")
         except ValueError:
             print("Invalid input! Please enter a number.")
-        self.wait_for_user()
+        await self.wait_for_user()
 
     async def start_scraping(self):
         self.print_header("Start Scraping")
@@ -268,4 +316,4 @@ class ScrapingMenu(BaseMenu):
                     region=self.config.region
                     )
             print("Scraping completed!")
-        self.wait_for_user()
+        await self.wait_for_user()

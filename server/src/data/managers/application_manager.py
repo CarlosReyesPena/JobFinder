@@ -24,12 +24,25 @@ class ApplicationManager:
 
         Returns:
             Application: The created application.
+
+        Raises:
+            ValueError: If required fields are missing or if application already exists.
         """
         # Required fields
         required_fields = ["user_id", "job_id", "application_status"]
         for field in required_fields:
             if not kwargs.get(field):
                 raise ValueError(f"The field '{field}' is required.")
+
+        # Check for existing application
+        existing = await self.session.execute(
+            select(Application).where(
+                Application.user_id == kwargs["user_id"],
+                Application.job_id == kwargs["job_id"]
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise ValueError("An application already exists for this user and job")
 
         # Set default for application_date if not provided
         if "application_date" not in kwargs or kwargs["application_date"] is None:

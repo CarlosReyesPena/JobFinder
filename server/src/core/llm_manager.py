@@ -15,12 +15,21 @@ class LLMManager:
         self._current_provider = "openai"
         self._lock = asyncio.Lock()  # Using asyncio.Lock instead of threading.Lock
         self._configure_logger()
-        asyncio.create_task(self._initialize_providers())  # Initialize providers asynchronously
+        self._init_task = asyncio.create_task(self._initialize_providers())
+        self._init_task.add_done_callback(self._handle_init_completion)
 
     def _configure_logger(self):
         """Configure logging system"""
         self.logger = logging.getLogger("LLMManager")
         self.logger.setLevel(logging.INFO)
+
+    def _handle_init_completion(self, future):
+        """Handle completion of initialization task"""
+        try:
+            future.result()  # This will raise any exceptions that occurred
+            self.logger.info("LLM providers initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Provider initialization failed: {e}")
 
     async def _initialize_providers(self):
         """Initialize LLM providers from settings"""
@@ -115,11 +124,14 @@ class LLMManager:
                     )
 
                 except Exception as e:
-                    self.logger.error(f"Error with {self._current_provider}: {str(e)}")
+                    self.logger.error(f"Error with {self._current_provider} on attempt {attempt + 1}: {str(e)}")
                     if attempt < max_retries - 1:
-                        await self._switch_to_fallback()
+                        self.logger.info("Retrying in 2 seconds...")
+                        await asyncio.sleep(2)
+                        continue
                     else:
-                        raise
+                        self.logger.error("Max attempts reached. Returning None.")
+                        return None
 
     async def _switch_to_fallback(self):
         """Switch to another available provider"""
