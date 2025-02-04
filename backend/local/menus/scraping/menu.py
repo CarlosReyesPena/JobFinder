@@ -1,4 +1,3 @@
-# src/local/menus/scraping/menu.py
 from typing import List
 from ...menus.base_menu import BaseMenu
 from .config import ScrapingConfig

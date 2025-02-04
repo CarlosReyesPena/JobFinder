@@ -1,0 +1,33 @@
+{
+    "term": null,
+    "employment_grade_min": null,
+    "employment_grade_max": null,
+    "publication_date": null,
+    "category": null,
+    "benefit": null,
+    "region": [
+        52,
+        34,
+        33,
+        42,
+        57
+    ],
+    "max_browsers": 5,
+    "keywords": [
+        "electronic technicien",
+        "technicien en g\u00e9nie \u00e9lectrique",
+        "formateur technique",
+        "embedded electronics",
+        "altium",
+        "D\u00e9veloppeur d'\u00e9lectronique embarqu\u00e9e",
+        "Ing\u00e9nieur en programmation embarqu\u00e9e",
+        "Formateur en \u00e9lectronique et programmation",
+        "Ing\u00e9nieur en syst\u00e8mes \u00e9lectroniques",
+        "D\u00e9veloppeur Python pour syst\u00e8mes embarqu\u00e9s",
+        "Electronics Engineer",
+        "Embedded Systems Developer",
+        "Automation Engineer",
+        "Technical Instructor",
+        "Data Integration Specialist"
+    ]
+}

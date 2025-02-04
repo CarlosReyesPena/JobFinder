@@ -1,7 +1,5 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional
-import os
-from dotenv import load_dotenv
 from sqlmodel import Session
 from data.managers.user_manager import UserManager
 from data.managers.job_offer_manager import JobOfferManager
@@ -12,7 +10,7 @@ from core.llm_manager import LLMManager
 from core.settings import settings
 
 
-MAX_RECIPIENT_LINE_LENGTH = 28
+MAX_RECIPIENT_LINE_LENGTH = 26
 MAX_SUBJECT_LENGTH = 52
 MAX_PARAGRAPH_LENGTH = 400
 MAX_TOTAL_LENGTH = 2000
