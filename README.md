@@ -42,19 +42,13 @@ cd src
 python mainlocal.py
 ```
 
-## Project Structure
+## Demonstration
 
-```
-JobFinder/
-└── server/
-    ├── src/
-    │   ├── core/           # Configuration
-    │   ├── data/           # Database
-    │   ├── services/       # Business logic
-    │   └── local/          # CLI interface
-    ├── requirements.txt
-    └── README.md
-```
+
+
+https://github.com/user-attachments/assets/c66d018f-9699-4f33-b46e-a3f62dde3efb
+
+
 
 ## Built With
 
