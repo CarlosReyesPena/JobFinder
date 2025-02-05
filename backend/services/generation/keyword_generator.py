@@ -88,8 +88,7 @@ class KeywordGenerator:
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
-                ],
-                max_tokens=settings.DEFAULT_MAX_TOKENS
+                ]
             )
 
             return completion

@@ -1,148 +1,132 @@
-from typing import Dict, Type, Any, Optional
-from openai import AsyncOpenAI
-from groq import AsyncGroq
-import instructor
+from typing import Any, Dict, Optional, Type
 from pydantic import BaseModel
 import logging
 import asyncio
-from .settings import settings
+import instructor
+from openai import OpenAI
+from core.settings import settings
+
+# Try to import Groq client if available.
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
 
 class LLMManager:
-    """Central class for managing LLM API interactions"""
+    """
+    Central class for managing LLM API interactions using the instructor library.
+    
+    This class initializes clients for different providers (OpenAI, Groq, and Ollama)
+    using instructor's patching to support structured outputs via Pydantic models.
+    """
 
     def __init__(self):
-        self._clients: Dict[str, Any] = {}
-        self._current_provider = "openai"
-        self._lock = asyncio.Lock()  # Using asyncio.Lock instead of threading.Lock
-        self._configure_logger()
-        self._init_task = asyncio.create_task(self._initialize_providers())
-        self._init_task.add_done_callback(self._handle_init_completion)
-
-    def _configure_logger(self):
-        """Configure logging system"""
+        self.clients: Dict[str, Any] = {}
+        self.current_provider: Optional[str] = None
         self.logger = logging.getLogger("LLMManager")
         self.logger.setLevel(logging.INFO)
+        self._initialize_providers()  # Synchronous initialization
 
-    def _handle_init_completion(self, future):
-        """Handle completion of initialization task"""
+    def _initialize_providers(self):
+        """Initialize LLM providers using instructor."""
         try:
-            future.result()  # This will raise any exceptions that occurred
-            self.logger.info("LLM providers initialized successfully")
-        except Exception as e:
-            self.logger.error(f"Provider initialization failed: {e}")
-
-    async def _initialize_providers(self):
-        """Initialize LLM providers from settings"""
-        try:
-            # OpenAI Configuration
+            # OpenAI provider
             if settings.OPENAI_API_KEY:
-                await self.add_provider(
-                    "openai",
-                    instructor.patch(AsyncOpenAI(api_key=settings.OPENAI_API_KEY)),
-                    default_model="gpt-4o-mini"
+                client_openai = instructor.from_openai(
+                    OpenAI(
+                        api_key=settings.OPENAI_API_KEY,
+                    )
                 )
+                client_openai.model = settings.OPENAI_MODEL
+                self.clients["openai"] = client_openai
 
-            # Groq Configuration
-            if settings.GROQ_API_KEY:
-                await self.add_provider(
-                    "groq",
-                    instructor.patch(AsyncGroq(api_key=settings.GROQ_API_KEY)),
-                    default_model="llama3-70b-8192"
+            # Groq provider (if available)
+            if settings.GROQ_API_KEY and Groq is not None:
+                client_groq = instructor.patch(
+                    Groq(
+                        api_key=settings.GROQ_API_KEY,
+                    )
                 )
+                client_groq.model = settings.GROQ_MODEL
+                self.clients["groq"] = client_groq
 
+            # Ollama provider (using OpenAI compatibility)
+            if settings.OLLAMA_HOST:
+                client_ollama = instructor.from_openai(
+                    OpenAI(
+                        base_url=f"{settings.OLLAMA_HOST}/v1",
+                        api_key="ollama",  # dummy API key, required by the API but not used
+                    )
+                )
+                client_ollama.model = settings.OLLAMA_MODEL
+                self.clients["ollama"] = client_ollama
+
+            # Set the default provider based on settings or select the first available.
+            if settings.DEFAULT_PROVIDER in self.clients:
+                self.current_provider = settings.DEFAULT_PROVIDER
+            elif self.clients:
+                self.current_provider = next(iter(self.clients))
+            else:
+                self.logger.error("No providers were initialized.")
         except Exception as e:
             self.logger.error(f"Provider initialization error: {e}")
             raise
 
-    async def add_provider(self, name: str, client: Any, default_model: str):
-        """
-        Add a new LLM provider
-        Args:
-            name (str): Provider name
-            client (Any): Provider client
-            default_model (str): Default model to use
-        """
-        async with self._lock:
-            self._clients[name] = {
-                "client": client,
-                "models": [default_model],
-                "default_model": default_model
-            }
-
     async def switch_provider(self, provider_name: str):
-        """
-        Switch active LLM provider
-        Args:
-            provider_name (str): Name of the provider to switch to
-        """
-        async with self._lock:
-            if provider_name in self._clients:
-                self._current_provider = provider_name
-            else:
-                raise ValueError(f"Provider {provider_name} not configured")
-
-    async def get_client(self, provider: Optional[str] = None) -> Any:
-        """
-        Get client for specific provider
-        Args:
-            provider (Optional[str]): Provider name, uses current if None
-        Returns:
-            Any: Provider client
-        """
-        provider = provider or self._current_provider
-        return self._clients.get(provider, {}).get("client")
+        """Switch the active LLM provider."""
+        if provider_name in self.clients:
+            self.current_provider = provider_name
+        else:
+            raise ValueError(f"Provider {provider_name} not configured.")
 
     async def create_completion_async(
         self,
-        response_model: Type[BaseModel],
+        response_model: Optional[Type[BaseModel]],
         messages: list,
-        max_retries: int = 2,
-        **kwargs
+        max_tokens: Optional[int] = None,
+        retries: int = settings.DEFAULT_MAX_RETRIES,
     ) -> Optional[BaseModel]:
         """
-        Create completion with the current LLM provider
-        Args:
-            response_model (Type[BaseModel]): Expected response model
-            messages (list): Messages for completion
-            max_retries (int): Maximum number of retries
-            **kwargs: Additional arguments for completion
+        Create a completion using the current LLM provider via instructor.
+
+        Parameters:
+            response_model: The Pydantic model for structured output. If None, returns the raw response.
+            messages: A list of message dictionaries (e.g., {"role": "user", "content": "..."})
+            max_tokens: Maximum tokens allowed for the generation.
+            retries: Number of retry attempts.
+
         Returns:
-            Optional[BaseModel]: Completion response
+            A parsed response using the response_model if provided, otherwise the raw response; or None on failure.
         """
-        for attempt in range(max_retries):
-            async with self._lock:
-                try:
-                    client_info = self._clients[self._current_provider]
-                    client = client_info["client"]
-                    model = kwargs.pop("model", client_info["default_model"])
+        if not self.current_provider:
+            self.logger.error("No provider is configured.")
+            return None
 
-                    return await client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        response_model=response_model,
-                        **kwargs
-                    )
+        client = self.clients[self.current_provider]
 
-                except Exception as e:
-                    self.logger.error(f"Error with {self._current_provider} on attempt {attempt + 1}: {str(e)}")
-                    if attempt < max_retries - 1:
-                        self.logger.info("Retrying in 2 seconds...")
-                        await asyncio.sleep(2)
-                        continue
-                    else:
-                        self.logger.error("Max attempts reached. Returning None.")
-                        return None
+        def call_completion():
+            return client.chat.completions.create(
+                model=client.model,
+                messages=messages,
+                response_model=response_model,
+                max_tokens=max_tokens,
+            )
 
-    async def _switch_to_fallback(self):
-        """Switch to another available provider"""
-        async with self._lock:
-            available = list(self._clients.keys())
-            if available:
-                new_provider = next(p for p in available if p != self._current_provider)
-                self._current_provider = new_provider
-                self.logger.info(f"Switching to {new_provider}")
+        for attempt in range(retries):
+            try:
+                result = await asyncio.to_thread(call_completion)
+                return result
+            except Exception as e:
+                self.logger.error(
+                    f"Error with provider '{self.current_provider}' on attempt {attempt + 1}: {e}"
+                )
+                if attempt < retries - 1:
+                    await asyncio.sleep(2)
+                else:
+                    self.logger.error("Max retries reached. Returning None.")
+                    return None
 
 class LLMResponse(BaseModel):
-    """Base model for LLM responses"""
+    """Base model for LLM responses."""
     content: str
     metadata: Optional[dict] = None
