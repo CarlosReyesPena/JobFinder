@@ -1,42 +1,58 @@
 # Framework and API
-fastapi==0.115.6
-uvicorn==0.34.0
-starlette==0.41.3
-python-multipart==0.0.20
-httpx==0.28.1
+fastapi>=0.95.2
+uvicorn>=0.22.0
+starlette
+python-multipart>=0.0.6
+httpx>=0.24.1
 
 # Database
-sqlmodel==0.0.22
-SQLAlchemy==2.0.37
+aiosqlite
+sqlmodel>=0.0.8
+SQLAlchemy>=2.0.15
+
+# Authentication and Security
+passlib>=1.7.4
+bcrypt>=4.0.1
+python-jose>=3.3.0
+pyjwt
+email-validator
 
 # Data Processing and Utilities
-langdetect==1.0.9
-babel==2.16.0
-pywin32==308
-Pillow==11.1.0
+langdetect
+babel
+pywin32
+Pillow
+langchain
 
 # PDF Generation
-reportlab==4.2.5
-PyPDF2==3.0.1
+reportlab>=4.0.4
+PyPDF2
 
 # Web Automation
-playwright==1.49.1
+playwright>=1.34.0
 
 # AI Integration
-openai==1.59.8
-groq==0.15.0
-instructor==1.7.2
+openai
+groq
+instructor
 
 # Environment and Config
-python-dotenv==1.0.1
-pydantic==2.10.5
-pydantic-settings==2.7.1
+python-dotenv
+pydantic>=1.10.8
 
 # Development Tools
-black==24.10.0
-isort==5.13.2
-flake8==7.1.1
+black
+isort
+flake8
 
 # Testing
-pytest==8.3.4
-pytest-asyncio==0.25.2
+pytest
+pytest-asyncio
+pytest-cov
+
+# Additional dependencies
+alembic>=1.11.1
+python-dateutil>=2.8.2
+pytz>=2023.3
+aiofiles>=23.1.0
+asyncpg>=0.27.0

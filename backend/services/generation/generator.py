@@ -1,183 +1,9 @@
 from pydantic import BaseModel
 from typing import List, Optional
-from sqlmodel import Session
-from data.managers.user_manager import UserManager
-from data.managers.job_offer_manager import JobOfferManager
-from data.managers.cover_letter_manager import CoverLetterManager
-from data.models.cover_letter import CoverLetter
-from langdetect import detect
-from core.llm_manager import LLMManager
-from core.settings import settings
+from backend.data.managers import UserManager, JobOfferManager, DocumentManager
+from backend.data.models import Document, DocumentType
+from backend.core.llm_manager import LLMManager
 
-
-MAX_RECIPIENT_LINE_LENGTH = 26
-MAX_SUBJECT_LENGTH = 52
-MAX_PARAGRAPH_LENGTH = 400
-MAX_TOTAL_LENGTH = 2000
-
-# Prompt templates as constants
-
-REFERENCE_LETTER_STYLE_PROMPT = """Study this reference letter carefully to understand the writer's unique style:
-
-{reference_letter}
-
-As you write the new cover letter, embody the following aspects of the original writer's style:
-1. Writing personality:
-   - Analyze their tone (formal/informal balance)
-   - Observe their sentence structure complexity
-   - Note their word choice patterns
-   - Identify their unique expressions and transitions
-
-2. Thought process:
-   - Understand how they structure their arguments
-   - Notice how they present achievements
-   - Observe how they connect ideas
-   - Study their persuasion techniques
-
-3. Style elements to mirror:
-   - Rhythm and flow of paragraphs
-   - Balance between professional and personal touch
-   - Way of expressing enthusiasm
-   - Approach to highlighting qualifications
-
-DO NOT:
-- Copy exact phrases or sentences
-- Use the same examples or experiences
-- Replicate specific achievements
-- Use identical structure
-
-Instead, write a completely new letter that feels like it was written by the same person,
-with their unique voice and thought process, but applied to this new situation and role.
-"""
-
-SYSTEM_PROMPT_TEMPLATE = """You are an expert Swiss cover letter writer who creates personalized, professional cover letters.
-Your task is to generate a cover letter that follows Swiss business standards and etiquette.
-
-Key requirements:
-- Maintain a formal yet engaging tone
-- Follow Swiss letter structure (subject, greeting, body, closing)
-- Ensure content is specific to the job and company
-- Keep total length under 2 pages (approximately {max_total_length} characters)
-- Write in {language} following local conventions
-- Focus on relevance and conciseness
-- Avoid generic phrases and clichés
-- Show genuine interest in the position"""
-
-SYSTEM_PROMPT_TEMPLATE_RECIPIENT_INFO = """You are an expert in extracting and formatting recipient information for Swiss business correspondence, especially for cover letters. Your task is to provide accurate, professional, and well-formatted recipient details to be used in formal applications.
-
-Key requirements:
-- Extract or determine the recipient information from the job description, adhering to Swiss business standards and ensuring the highest accuracy and relevance for use in a professional cover letter. Any incorrect, assumed, or invented information would negatively impact the quality of the letter.
-- Ensure the output is the same output a person would write in a cover letter from what is written in the job description.
-- Avoid using things like "not specified" or "not provided" in the output.
-- The output must be the same output a person would write in a cover letter from what is written in the job description in {language}.
-"""
-
-COVER_LETTER_PROMPT_TEMPLATE = """Create a cover letter based on the following information:
-
-Candidate Profile:
-{user_profile}
-
-Job Description:
-{job_description}
-
-Requirements:
-1. Structure (Swiss format):
-   - Clear subject line (max {subject_length} chars)
-   - Professional greeting
-   - Introduction: Why this position interests the candidate
-   - Skills and experience: Match the job requirements
-   - Motivation: Value proposition for the company
-   - Conclusion: Call to action and availability
-   - Professional closing: Include the culturally appropriate closing for Swiss standards in the specified language
-
-2. Length constraints:
-   - Each paragraph: Max {paragraph_length} chars
-   - Total length: Max {max_total_length} chars
-   - Ensure conciseness and clarity.
-
-3. Style guidelines:
-   - Be specific about achievements and skills
-   - Use active voice
-   - Demonstrate knowledge of the company and the role
-   - Maintain a professional and confident tone
-   - Highlight relevant experience
-   - Show enthusiasm without being excessive
-   - Avoid generic or repetitive phrases
-   - *Closing*: Use a formal, culturally appropriate closing, such as:
-     - In French: "Je vous prie d'agréer, Madame, Monsieur, mes salutations distinguées."
-     - In German: "Mit freundlichen Grüßen."
-     - In English: "Yours sincerely."
-     - Ensure no placeholder names or candidate references are included.
-
-4. Cultural considerations:
-   - Follow Swiss business etiquette and conventions
-   - Use formal language appropriate for {language}
-   - Match local business communication standards
-
-**DO NOT:**
-- Include any placeholders such as [Your Name] or other personal identifiers. The candidate's name will be introduced externally.
-
-The letter should feel personal, tailored, and professional—avoiding any indications of being AI-generated or overly generic."""
-
-RECIPIENT_INFO_PROMPT = """
-Extract or determine the recipient information from the job description, adhering to Swiss business standards and ensuring the highest accuracy and relevance for use in a professional cover letter. Any incorrect, assumed, or invented information would negatively impact the quality of the letter.
-
-**Job Description:**
-{job_description}
-
-**Guidelines:**
-1. **Company Name:**
-   - Extract the company name exactly as mentioned in the job description.
-   - If the name is very long (e.g., "Bureau d'ingénieur de prestige"), shorten it appropriately while preserving clarity and professionalism (e.g., "Bureau d'ingénieur").
-   - Ensure the name fits within {recipient_line_length} characters and remains suitable for direct use in a cover letter.
-   - If the company name is not specified, let the output be empty.
-
-2. **Recipient:**
-   - If a specific person is mentioned, include their name using the traditional format of the language of the job description.
-     - e.g. In French: "Monsieur Dupont"
-     - e.g. In German: "Herr Müller"
-     - e.g. In English: "Ms. Smith"
-   - Else if there is no specific person mentioned, use a neutral term appropriate to the language of the job description:
-     - French: "À qui de droit"
-     - German: "An wen es betrifft"
-     - English: "To whom it may concern"
-   - Avoid any invented names or placeholders under all circumstances.
-
-3. **Address:**
-   - Extract the full Swiss address exactly as mentioned, ensuring correct formatting:
-     - Street and building number on one line. (e.g. "Rue de la Paix 123")
-     - Postal code and city on the next line (e.g., "1009 Pully").
-   - If no address is provided in the job description, leave this section blank without making assumptions or adding placeholders.
-
-**Important Notes:**
-- **Accuracy is critical:** Ensure that all extracted information is factually correct and directly usable in a professional context.
-- **Do not invent or assume missing details:** If any information is unavailable, the output must reflect this by omitting the field entirely.
-- Avoid repeating the same information or including placeholders like "[Company Name]" or "[Address]."
-- Avoid using things like "not specified" or "not provided" in the output.
-- The output must be the same output a person would write in a cover letter from what is written in the job description.
-
-**Critical Reminders:**
-- **Output must be optimized for use in a formal cover letter.**
-- Do not compromise on accuracy or logic: any false or illogical information would never be written by a person into the recipient info of a cover letter.
-- When in doubt, omit information rather than guess.
-
-** expected output example:
-- Nettoyeurs SA
-- Monsieur Dupont
-- Rue de la Paix 123
-- 1009 Pully
-
-** expected output example 2:
-- À qui de droit
-
-** expected output example 3:
-- An wen es betrifft
-
-** expected output example 4:
-- Madame Müller
-- Rue de l'Industrie 31
-- 1000 Lausanne
-"""
 
 class RecipientInfoResponse(BaseModel):
     company_name: Optional[str]
@@ -194,86 +20,24 @@ class CoverLetterResponse(BaseModel):
     closing: str
 
 class CoverLetterGenerator:
-    def __init__(self, session: Session):
-        self.session = session
-        self.user_manager = UserManager(self.session)
-        self.job_offer_manager = JobOfferManager(self.session)
-        self.cover_letter_manager = CoverLetterManager(self.session)
+    def __init__(self):
+        self.user_manager = UserManager()
+        self.job_offer_manager = JobOfferManager()
+        self.document_manager = DocumentManager()
         self.llm_client = LLMManager()
 
-    def detect_language(self, text: str) -> str:
-        try:
-            return detect(text)
-        except Exception as e:
-            print(f"Language detection error: {e}")
-            return "en"
 
-    def validate_letter_length(self, cover_letter: CoverLetterResponse) -> bool:
-        total_length = 0
-        for field in cover_letter.__fields__:
-            value = getattr(cover_letter, field)
-            if isinstance(value, str):
-                total_length += len(value)
-        return total_length <= MAX_TOTAL_LENGTH
+    async def generate_cover_letter(self, user_id: int, job_id: int) -> Optional[Document]:
+        """
+        Generate a cover letter using a user ID and a job ID.
 
-    async def generate_recipient_info(self, job_description: str) -> Optional[RecipientInfoResponse]:
-        language = self.detect_language(job_description)
+        Args:
+            user_id (int): ID of the user
+            job_id (int): ID of the job offer
 
-        prompt = RECIPIENT_INFO_PROMPT.format(
-            job_description=job_description,
-            recipient_line_length=MAX_RECIPIENT_LINE_LENGTH,
-            language=language
-        )
-
-        try:
-            completion = await self.llm_client.create_completion_async(
-                response_model=RecipientInfoResponse,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE_RECIPIENT_INFO.format(
-                        language=language
-                    )},
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=settings.DEFAULT_MAX_TOKENS
-            )
-
-            if self.validate_recipient_info(completion):
-                return completion
-
-        except Exception as e:
-            print(f"Error generating recipient info: {e}")
-
-        return self.get_default_recipient_info(language)
-
-    def validate_recipient_info(self, recipient_info: RecipientInfoResponse) -> bool:
-        if not recipient_info.recipient and not recipient_info.address and not recipient_info.company_name:
-            return False
-
-        def has_forbidden_chars(text: str) -> bool:
-            forbidden_chars = r'[]{}()<>|\\~^°'
-            return any(char in text for char in forbidden_chars)
-
-        for info_list in [recipient_info.address,  recipient_info.recipient, recipient_info.company_name]:
-            if info_list:
-                for line in info_list:
-                    if len(line) > MAX_RECIPIENT_LINE_LENGTH or has_forbidden_chars(line):
-                        return False
-        return True
-
-    def get_default_recipient_info(self, language: str) -> RecipientInfoResponse:
-        default_greetings = {
-            "fr": "À qui de droit",
-            "de": "An wen es betrifft",
-            "en": "To whom it may concern",
-            "it": "A chi di competenza"
-        }
-        return RecipientInfoResponse(
-            company_name=None,
-            recipient=default_greetings.get(language, default_greetings["en"]),
-            address=None
-        )
-
-    async def generate_cover_letter(self, user_id: int, job_id: int) -> Optional[CoverLetter]:
+        Returns:
+            Optional[Document]: Generated cover letter or None if generation failed
+        """
         user = await self.user_manager.get_user_by_id(user_id)
         job_offer = await self.job_offer_manager.get_job_offer_by_id(job_id)
 
@@ -281,91 +45,243 @@ class CoverLetterGenerator:
             print("User or job offer missing.")
             return None
 
+        return await self._generate_cover_letter_from_job_offer(user_id, job_offer)
+
+    async def generate_cover_letter_by_link(self, user_id: int, job_link: str) -> Optional[Document]:
+        """
+        Generate a cover letter using a user ID and a job link.
+
+        Args:
+            user_id (int): ID of the user
+            job_link (str): Link to the job offer
+
+        Returns:
+            Optional[Document]: Generated cover letter or None if generation failed
+        """
+        user = await self.user_manager.get_user_by_id(user_id)
+        job_offer = await self.job_offer_manager.get_job_offer_by_link(job_link)
+
+        if not user or not job_offer:
+            print("User or job offer missing.")
+            return None
+
+        return await self._generate_cover_letter_from_job_offer(user_id, job_offer)
+
+    async def _generate_cover_letter_from_job_offer(self, user_id: int, job_offer) -> Optional[Document]:
+        """
+        Internal method to generate a cover letter from a job offer object.
+
+        Args:
+            user_id (int): ID of the user
+            job_offer: The job offer object
+
+        Returns:
+            Optional[Document]: Generated cover letter or None if generation failed
+        """
+        # Get job info from the job_info JSON field
+        job_info = job_offer.job_info
         job_description = (
-            f"Company name: {job_offer.company_name}\n"
-            f"Company information: {job_offer.company_info}\n"
-            f"Job title: {job_offer.job_title}\n"
-            f"Job description: {job_offer.job_description}\n"
-            f"Job location: {job_offer.work_location}"
+            f"Company name: {job_info.get('company_name', 'Unknown')}\n"
+            f"Company information: {job_info.get('company_description', 'Not provided')}\n"
+            f"Job title: {job_info.get('job_title', 'Not provided')}\n"
+            f"Job description: {job_info.get('job_description', 'Not provided')}\n"
+            f"Job location: {job_info.get('location', 'Not provided')}\n"
+            f"Job type: {job_info.get('job_type', 'Not provided')}\n"
+            f"Responsibilities: {job_info.get('responsibilities', 'Not provided')}\n"
+            f"Requirements: {job_info.get('requirements', 'Not provided')}\n"
+            f"Benefits: {job_info.get('benefits', 'Not provided')}\n"
+            f"Contact information: {job_info.get('contact_info', 'Not provided')}"
         )
 
-        language = self.detect_language(job_description)
-        recipient_info = await self.generate_recipient_info(job_description)
+        # Get user CV from documents
+        user_cv = await self.document_manager.get_last_document_by_type(
+            user_id=user_id,
+            document_type=DocumentType.CV
+        )
+        cv_text = ""
+        if user_cv:
+            # Use the text content of the most recent CV
+            cv_text = user_cv.text_content or ""
 
+        # Get reference letter if available
+        reference_letters = await self.document_manager.get_user_documents(
+            user_id=user_id,
+            document_type=DocumentType.REFERENCE_LETTER
+        )
+        reference_letter_text = ""
+        if reference_letters and len(reference_letters) > 0:
+            reference_letter_text = reference_letters[0].text_content or ""
+
+        # Generate recipient info using BAML
+        recipient_info = await self.llm_client.generate_recipient_info(
+            job_description=job_description
+        )
         if not recipient_info:
             return None
 
-        messages = self.prepare_messages(user, job_description, language)
+        # Generate cover letter body using BAML
+        cover_letter_body = await self.llm_client.generate_cover_letter_body(
+            user_profile=cv_text,
+            job_description=job_description,
+            reference_letter=reference_letter_text
+        )
 
-        try:
-            completion = await self.llm_client.create_completion_async(
-                response_model=CoverLetterResponse,
-                messages=messages,
-                max_tokens=settings.DEFAULT_MAX_TOKENS,
-                temperature=settings.DEFAULT_TEMPERATURE
-            )
-
-            if not completion or not self.validate_letter_length(completion):
-                return None
-
-            recipient_info_str = self.format_recipient_info(recipient_info)
-
-            return await self.save_cover_letter(
-                user_id, job_id, completion, recipient_info_str
-            )
-
-        except Exception as e:
-            print(f"Error generating cover letter: {e}")
+        if not cover_letter_body:
             return None
 
-    def prepare_messages(self, user, job_description: str, language: str) -> List[dict]:
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE.format(
-                max_total_length=MAX_TOTAL_LENGTH,
-                language=language
-            )},
-            {"role": "user", "content": COVER_LETTER_PROMPT_TEMPLATE.format(
-                user_profile=user.cv_text,
-                job_description=job_description,
-                subject_length=MAX_SUBJECT_LENGTH,
-                paragraph_length=MAX_PARAGRAPH_LENGTH,
-                max_total_length=MAX_TOTAL_LENGTH,
-                language=language
-            )}
-        ]
+        # Format recipient info
+        recipient_info_str = self.format_recipient_info(recipient_info)
 
-        if user.reference_letter:
-            messages.insert(1, {
-                "role": "user",
-                "content": REFERENCE_LETTER_STYLE_PROMPT.format(
-                    reference_letter=user.reference_letter
-                )
-            })
+        # Save the cover letter
+        return await self.save_cover_letter(
+            user_id=user_id,
+            job_id=job_offer.id,
+            cover_letter_response=cover_letter_body,
+            recipient_info=recipient_info_str
+        )
 
-        return messages
+    async def generate_cover_letter_from_string(self, user_id: int, job_offer_text: str) -> Optional[Document]:
+        """
+        Generate a cover letter using a user ID and a job offer text string
 
-    def format_recipient_info(self, recipient_info: RecipientInfoResponse) -> str:
+        Args:
+            user_id (int): ID of the user
+            job_offer_text (str): Raw text of the job offer
+
+        Returns:
+            Optional[Document]: Generated cover letter or None if generation failed
+        """
+        try:
+            user = await self.user_manager.get_user_by_id(user_id)
+
+            if not user:
+                print("User not found.")
+                return None
+
+            # Get user CV from documents
+            user_cv = await self.document_manager.get_user_documents(
+                user_id=user_id,
+                document_type=DocumentType.CV
+            )
+            cv_text = ""
+            if user_cv and len(user_cv) > 0:
+                # Use the text content of the most recent CV
+                cv_text = user_cv[0].text_content or ""
+
+            # Get reference letter if available
+            reference_letters = await self.document_manager.get_user_documents(
+                user_id=user_id,
+                document_type=DocumentType.REFERENCE_LETTER
+            )
+            reference_letter_text = ""
+            if reference_letters and len(reference_letters) > 0:
+                reference_letter_text = reference_letters[0].text_content or ""
+
+            # Generate recipient info using BAML
+            recipient_info = await self.llm_client.generate_recipient_info(
+                job_description=job_offer_text
+            )
+            if not recipient_info:
+                return None
+
+            # Generate cover letter body using BAML
+            cover_letter_body = await self.llm_client.generate_cover_letter_body(
+                user_profile=cv_text,
+                job_description=job_offer_text,
+                reference_letter=reference_letter_text
+            )
+
+            if not cover_letter_body:
+                return None
+
+            # Format recipient info
+            recipient_info_str = self.format_recipient_info(recipient_info)
+
+            # Save the cover letter without a job_id
+            return await self.save_cover_letter(
+                user_id=user_id,
+                job_id=None,  # job_id is optional
+                cover_letter_response=cover_letter_body,
+                recipient_info=recipient_info_str
+            )
+        except Exception as e:
+            print(f"Error in generate_cover_letter_from_string: {e}")
+            return None
+
+    def format_recipient_info(self, recipient_info) -> str:
+        """
+        Format the recipient information from a CoverLetterRecipient object into a multi-line string.
+
+        Args:
+            recipient_info: CoverLetterRecipient object containing recipient details
+
+        Returns:
+            str: Formatted recipient information as a multi-line string
+        """
         lines = []
+
+        # Add company name if available
         if recipient_info.company_name:
             lines.append(recipient_info.company_name)
-        if recipient_info.recipient:
-            lines.append(recipient_info.recipient)
-        if recipient_info.address:
-            lines.extend(recipient_info.address)
+
+        # Add either recipient_name or generic_greeting (only one will be present)
+        if recipient_info.recipient_name:
+            lines.append(recipient_info.recipient_name)
+        elif recipient_info.generic_greeting:
+            lines.append(recipient_info.generic_greeting)
+
+        # Add address lines if available
+        if recipient_info.address_lines:
+            lines.extend(recipient_info.address_lines)
+
         return "\n".join(filter(None, lines))
 
-    async def save_cover_letter(self, user_id: int, job_id: int,
-                              cover_letter_response: CoverLetterResponse,
-                              recipient_info: str) -> CoverLetter:
-        return await self.cover_letter_manager.add_cover_letter(
-            user_id=user_id,
-            job_id=job_id,
-            subject=cover_letter_response.subject,
-            greeting=cover_letter_response.greeting,
-            introduction=cover_letter_response.introduction,
-            skills_experience=cover_letter_response.skills_experience,
-            motivation=cover_letter_response.motivation,
-            conclusion=cover_letter_response.conclusion,
-            closing=cover_letter_response.closing,
-            recipient_info=recipient_info
-        )
+    async def save_cover_letter(self, user_id: int, cover_letter_response,
+                              recipient_info: str = "", job_id: Optional[int] = None) -> Optional[Document]:
+        """
+        Save a cover letter to the database using the unified Document model
+
+        Args:
+            user_id (int): ID of the user
+            cover_letter_response: Cover letter response object
+            recipient_info (str): Formatted recipient information
+            job_id (Optional[int]): ID of the job offer (can be None for text-based generation)
+
+        Returns:
+            Optional[Document]: The saved cover letter document or None if save failed
+        """
+        try:
+            # Create a JSON content structure for the cover letter
+            cover_letter_content = {
+                "subject": cover_letter_response.subject,
+                "greeting": cover_letter_response.greeting,
+                "introduction": cover_letter_response.introduction,
+                "skills_experience": cover_letter_response.skills_experience,
+                "motivation": cover_letter_response.motivation,
+                "conclusion": cover_letter_response.conclusion,
+                "closing": cover_letter_response.closing,
+                "recipient_info": recipient_info
+            }
+
+            # Use document_manager to create a cover letter document
+            if job_id:
+                # If job_id is provided, use the cover_letter_for_job method
+                return await self.document_manager.create_cover_letter_for_job(
+                    user_id=user_id,
+                    job_id=job_id,
+                    name="Cover Letter",
+                    content=cover_letter_content,
+                    metadata={"generated": True, "version": "1.0"}
+                )
+            else:
+                # Otherwise create a standalone cover letter
+                return await self.document_manager.create_document(
+                    user_id=user_id,
+                    document_type=DocumentType.COVER_LETTER,
+                    name="Cover Letter",
+                    json_content=cover_letter_content,
+                    metadata={"generated": True, "version": "1.0"}
+                )
+        except Exception as e:
+            print(f"Error in save_cover_letter: {e}")
+            return None

@@ -1,20 +1,19 @@
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from pathlib import Path
 import logging
-from typing import Optional, Tuple
-from data.managers.browser_cache_manager import BrowserCacheManager
-from data.database import get_app_data_dir
-from sqlmodel import Session
+from typing import Tuple
+from backend.data.managers import DocumentManager
+from backend.data.models import DocumentType
+from backend.data.database import get_app_data_dir
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class BrowserSession:
-    def __init__(self, session: Session, user_id: int):
-        self.session = session
+    def __init__(self, user_id: int):
         self.user_id = user_id
-        self.cache_manager = BrowserCacheManager(session)
+        self.document_manager = DocumentManager()
         self.cache_dir = self._get_cache_dir()
         self.login_url = "https://www.jobup.ch"
 
@@ -87,11 +86,27 @@ class BrowserSession:
         """Save session state"""
         try:
             # Save context state
-            await context.storage_state(path=str(self.cache_dir / "state.json"))
+            storage_path = self.cache_dir / "state.json"
+            await context.storage_state(path=str(storage_path))
 
             # Save cache in database
-            if await self.cache_manager.save_cache_directory(self.user_id, str(self.cache_dir)):
-                logger.info("Session saved successfully")
+            if storage_path.exists():
+                browser_cache = storage_path.read_bytes()
+
+                # Create a document for the cache
+                await self.document_manager.create_document(
+                    user_id=self.user_id,
+                    document_type=DocumentType.BROWSER_CACHE,
+                    name="jobup_browser_cache.json",
+                    binary_content=browser_cache,
+                    metadata={
+                        "browser": "chromium",
+                        "site": "jobup.ch",
+                        "purpose": "login"
+                    }
+                )
+
+                logger.info("Session saved successfully in database")
                 return True
             return False
         except Exception as e:
@@ -101,7 +116,32 @@ class BrowserSession:
     async def restore_session(self) -> bool:
         """Restore previous session"""
         try:
-            return await self.cache_manager.extract_cache_directory(self.user_id, str(self.cache_dir))
+            # Get the latest browser cache document
+            cache_doc = await self.document_manager.get_last_document_by_type(
+                user_id=self.user_id,
+                document_type=DocumentType.BROWSER_CACHE
+            )
+
+            if not cache_doc or not cache_doc.binary_content:
+                logger.info("No browser cache found in database")
+                return False
+
+            # Extract the document to the cache directory
+            success, path = await self.document_manager.extract_to_temp(cache_doc.id)
+
+            if not success:
+                logger.error(f"Failed to extract browser cache: {path}")
+                return False
+
+            # Copy the extracted file to the cache directory
+            temp_file = Path(path)
+            if temp_file.exists():
+                state_path = self.cache_dir / "state.json"
+                state_path.write_bytes(temp_file.read_bytes())
+                logger.info(f"Session restored successfully from {temp_file} to {state_path}")
+                return True
+
+            return False
         except Exception as e:
             logger.error(f"Error while restoring session: {e}")
             return False
@@ -154,28 +194,16 @@ class BrowserSession:
             logger.error(error_msg)
             return False, error_msg
 
-async def launch_browser_and_save_session(user_id: int, session: Session) -> Tuple[bool, str]:
+async def launch_browser_and_save_session(user_id: int) -> Tuple[bool, str]:
     """
     Main entry point to launch browser session.
 
     Args:
         user_id (int): User ID
-        session (Session): SQLModel Session
+        session (AsyncSession): SQLAlchemy Async Session
 
     Returns:
         Tuple[bool, str]: (success, message)
     """
-    browser_session = BrowserSession(session, user_id)
+    browser_session = BrowserSession( user_id)
     return await browser_session.launch_browser_session()
-
-if __name__ == "__main__":
-    import asyncio
-    from sqlmodel import Session, create_engine
-
-    async def main():
-        engine = create_engine("sqlite:///job_application.db")
-        with Session(engine) as session:
-            success, message = await launch_browser_and_save_session(user_id=1, session=session)
-            print(f"Result: {message}")
-
-    asyncio.run(main())

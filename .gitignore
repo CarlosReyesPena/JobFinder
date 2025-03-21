@@ -166,7 +166,10 @@ test/
 
 
 *.db
-*/.vscode/launch.json
+.vscode/*
 
 
-server/scraping_config.json
+backend/api/*
+backend/core/security.py
+
+.cursor/*

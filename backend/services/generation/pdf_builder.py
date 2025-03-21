@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Optional
 from datetime import date
 import os
 import locale
@@ -16,28 +16,26 @@ from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-from sqlmodel import Session
-from data.managers.user_manager import UserManager
-from data.managers.job_offer_manager import JobOfferManager
-from data.managers.cover_letter_manager import CoverLetterManager
-from data.database import get_app_data_dir
+from backend.data.managers import UserManager, JobOfferManager, DocumentManager
+from backend.data.models import DocumentType
 
 
 class PDFCoverLetterGenerator:
-    def __init__(self, session: Session):
-        self.session = session
-        self.user_manager = UserManager(self.session)
-        self.job_offer_manager = JobOfferManager(self.session)
-        self.cover_letter_manager = CoverLetterManager(self.session)
+    def __init__(self):
+        self.user_manager = UserManager()
+        self.job_offer_manager = JobOfferManager()
+        self.document_manager = DocumentManager()
 
-        self.config_path = get_app_data_dir() / "config"
-        if not os.path.exists(self.config_path / "fonts"):
-            os.makedirs(self.config_path)
-        self.fonts_dir = os.path.join(self.config_path, "fonts")
-        if os.path.exists(self.config_path / "fonts"):
-            self.signature_path = os.path.join(self.config_path, "signature.png")
-        else:
-            self.signature_path = None
+        # Get the directory where this file is located
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Set fonts_dir to be in the same directory as this file
+        self.fonts_dir = os.path.join(current_dir, "fonts")
+
+        # Ensure fonts directory exists
+        if not os.path.exists(self.fonts_dir):
+            os.makedirs(self.fonts_dir)
+
         self._register_fonts()
 
     def _register_fonts(self):
@@ -117,30 +115,121 @@ class PDFCoverLetterGenerator:
         filename = '_'.join(filter(None, filename.split()))
         return filename
 
-    async def generate_cover_letter_pdf(self, user_id: int, job_id: int) -> Tuple[bool, str]:
-        """Generate a PDF cover letter, ensuring it is exactly one page."""
+    def _get_sender_info(self, user) -> str:
+        """
+        Format the sender information from user's data and config.
+        The config should contain: address, postal_code, city, phone_number
+        """
+        # Start with full name
+        sender_lines = [f"{user.first_name} {user.last_name}"]
+
+        # Get user configuration for contact details
+        config = user.config or {}
+
+        # Add address if available
+        if 'address' in config:
+            sender_lines.append(config['address'])
+
+        # Add postal code and city if available
+        city_line = ""
+        if 'postal_code' in config:
+            city_line += config['postal_code']
+        if 'city' in config:
+            if city_line:
+                city_line += " "
+            city_line += config['city']
+        if city_line:
+            sender_lines.append(city_line)
+
+        # Add phone number if available
+        if 'phone_number' in config:
+            sender_lines.append(f"Num. : {config['phone_number']}")
+
+        # Add email
+        sender_lines.append(user.email)
+
+        return "\n".join(sender_lines)
+
+    async def _get_signature_path(self, user_id: int) -> Optional[str]:
+        """
+        Get the path to the user's signature by extracting it from the database.
+
+        Args:
+            user_id: ID of the user
+
+        Returns:
+            Optional[str]: Path to signature file or None if not found
+        """
+        success, path = await self.document_manager.extract_latest_document_by_type_to_temp(
+            user_id=user_id,
+            document_type=DocumentType.SIGNATURE
+        )
+
+        if success and os.path.exists(path):
+            return path
+        return None
+
+    async def generate_cover_letter_pdf(self, user_id: int, job_id: Optional[int] = None, document_id: Optional[int] = None) -> Tuple[bool, str]:
+        """Generate a PDF cover letter, ensuring it is exactly one page.
+
+        Args:
+            user_id: The ID of the user
+            job_id: Optional job offer ID (mutually exclusive with document_id)
+            document_id: Optional cover letter document ID (mutually exclusive with job_id)
+        """
+        if job_id is None and document_id is None:
+            return False, "Either job_id or document_id must be provided."
+
+        if job_id is not None and document_id is not None:
+            return False, "Only one of job_id or document_id should be provided, not both."
+
         # Get data from database
         user = await self.user_manager.get_user_by_id(user_id)
-        job_offer = await self.job_offer_manager.get_job_offer_by_id(job_id)
-        cover_letter = await self.cover_letter_manager.get_cover_letter_by_user_and_job_id(user_id, job_id)
 
-        if not user or not job_offer or not cover_letter:
+        # Get the cover letter document
+        if document_id:
+            cover_letter = await self.document_manager.get_document_by_id(document_id)
+            if cover_letter and cover_letter.job_id:
+                job_id = cover_letter.job_id
+                job_offer = await self.job_offer_manager.get_job_offer_by_id(job_id)
+            else:
+                job_offer = None
+        else:
+            # Get the latest cover letter for the job
+            cover_letter = await self.document_manager.get_latest_cover_letter_for_job(job_id, user_id)
+            job_offer = await self.job_offer_manager.get_job_offer_by_id(job_id)
+
+        if not user or not cover_letter:
             return False, "Missing data for generating cover letter PDF."
+
+        # Get company name from job offer if available
+        company_name = "Unknown"
+        if job_offer:
+            company_name = job_offer.job_info.get('company_name', 'Unknown')
+
+        # Extract content from the document's json_content
+        if not cover_letter.json_content:
+            return False, "Cover letter has no content."
+
+        content = cover_letter.json_content
+
+        # Get formatted sender information from user config
+        sender_info = self._get_sender_info(user)
 
         # Prepare letter data
         data = {
-            "sender": f"{user.contact_info}",
-            "recipient": cover_letter.recipient_info,
-            "subject": cover_letter.subject,
+            "sender": sender_info,
+            "recipient": content.get("recipient_info", ""),
+            "subject": content.get("subject", "Application for Position"),
             "body": (
-                f"{cover_letter.greeting}\n\n"
-                f"{cover_letter.introduction}\n\n"
-                f"{cover_letter.skills_experience}\n\n"
-                f"{cover_letter.motivation}\n\n"
-                f"{cover_letter.conclusion}\n\n"
-                f"{cover_letter.closing}"
+                f"{content.get('greeting', '')}\n\n"
+                f"{content.get('introduction', '')}\n\n"
+                f"{content.get('skills_experience', '')}\n\n"
+                f"{content.get('motivation', '')}\n\n"
+                f"{content.get('conclusion', '')}\n\n"
+                f"{content.get('closing', '')}"
             ),
-            "filename": self._sanitize_filename(f"Cover_Letter_{user.last_name}_{job_offer.company_name}.pdf")
+            "filename": self._sanitize_filename(f"Cover_Letter_{user.last_name}_{company_name}.pdf")
         }
 
         # Try different font sizes until the letter fits exactly one page
@@ -148,8 +237,8 @@ class PDFCoverLetterGenerator:
             # Create styles with current font size
             styles = self._create_styles(font_size)
 
-            # Generate PDF content
-            letter_content = self._create_letter_content(data, styles)
+            # Generate PDF content (now with user_id parameter)
+            letter_content = await self._create_letter_content(user_id, data, styles)
 
             # Generate PDF in memory
             buffer = BytesIO()
@@ -160,10 +249,23 @@ class PDFCoverLetterGenerator:
             num_pages = self._count_pdf_pages(pdf_data)
 
             if num_pages == 1:
-                # PDF is exactly one page, save it
-                await self.cover_letter_manager.add_pdf_to_cover_letter(cover_letter.id, pdf_data)
+                # PDF is exactly one page, update the document with the PDF content
+                updated_document = await self.document_manager.update_document(
+                    document_id=cover_letter.id,
+                    binary_content=pdf_data,
+                    metadata={
+                        **(cover_letter.metadata or {}),
+                        "pdf_generated": True,
+                        "pdf_date": date.today().isoformat(),
+                        "pdf_pages": 1
+                    }
+                )
                 buffer.close()
-                return True, "Cover letter generated successfully"
+
+                if updated_document:
+                    return True, "Cover letter PDF generated successfully"
+                else:
+                    return False, "Failed to update document with PDF"
 
             buffer.close()
 
@@ -199,7 +301,7 @@ class PDFCoverLetterGenerator:
             "total": len(job_ids)
         }
 
-    def _create_letter_content(self, data: dict, styles: dict) -> list:
+    async def _create_letter_content(self, user_id: int, data: dict, styles: dict) -> list:
         """Create the content elements for the PDF."""
         letter_content = []
 
@@ -219,7 +321,18 @@ class PDFCoverLetterGenerator:
 
         # 3. Date
         lang = detect(data["body"])
-        city = sender_lines[2].split(' ', 1)[1] if len(sender_lines) > 2 else None
+        # Get city from sender info (line 2 or 3 typically has postal code and city)
+        city = None
+        if len(sender_lines) >= 3:
+            # Try to extract city from the third line which typically has postal code and city
+            city_line = sender_lines[2]
+            # Try to split by postal code format (assume it's at the beginning of the line)
+            parts = city_line.strip().split(' ', 1)
+            if len(parts) > 1 and parts[0].isdigit():
+                city = parts[1]
+            else:
+                city = city_line
+
         date_text = self._format_date(lang, city)
         letter_content.append(Paragraph(date_text, styles['Indented']))
         letter_content.append(Spacer(1, 2.0 * cm))  # Increased spacing between date and subject
@@ -245,9 +358,11 @@ class PDFCoverLetterGenerator:
         letter_content.append(Spacer(1, 0.8 * cm))  # Reduced spacing
         letter_content.append(Paragraph(full_name, styles['Indented']))
 
-        if os.path.exists(self.signature_path):
+        # Get signature path from database
+        signature_path = await self._get_signature_path(user_id)
+        if signature_path and os.path.exists(signature_path):
             letter_content.append(Spacer(1, 0.8 * cm))  # Reduced spacing
-            letter_content.append(Image(self.signature_path, width=4 * cm, height=1.5 * cm, hAlign='RIGHT'))
+            letter_content.append(Image(signature_path, width=4 * cm, height=1.5 * cm, hAlign='RIGHT'))
 
         return letter_content
 

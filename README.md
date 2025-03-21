@@ -63,6 +63,30 @@ JobFinder/
 - OpenAI/Groq - Content generation
 - ReportLab - PDF generation
 - FastAPI - REST API (in development)
+- BAML - Structured LLM prompts
+
+## BAML Integration
+
+JobFinder now supports [BAML](https://docs.boundaryml.com/home) (Boundary Markup Language) for structured LLM prompts. BAML provides several advantages:
+
+- Type-safe prompts with structured outputs
+- Better prompt versioning and management
+- Improved error handling
+- Support for multiple LLM providers
+
+To use BAML:
+
+```bash
+# Install BAML dependencies
+cd backend
+python install_baml.py
+
+# Update your .env file with API keys
+# Run the application normally
+python main.py
+```
+
+See `backend/baml/README.md` for more details on the BAML integration.
 
 ## Roadmap
 

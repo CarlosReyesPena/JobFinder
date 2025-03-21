@@ -1,7 +1,7 @@
 from playwright.async_api import async_playwright
 from typing import List, Optional
-from sqlmodel import Session
-from data.managers.job_offer_manager import JobOfferManager
+from backend.data.managers import JobOfferManager
+from backend.data.models import JobSite
 import asyncio
 import re
 import logging
@@ -20,19 +20,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class JobScraper:
-    def __init__(self, session: Session, language: str = "fr",
+    def __init__(self, language: str = "fr",
                  max_browsers: int = 10, debug_level: str = "INFO"):
         """
         Initializes the scraper with a database session and managers.
 
         Args:
-            session (Session): SQLModel session for database operations.
             language (str): Language for the job listings.
             max_browsers (int): Maximum number of browsers to run in parallel.
             debug_level (str): Logging level.
         """
-        self.session = session
-        self.job_offer_manager = JobOfferManager(self.session)
+        self.job_offer_manager = JobOfferManager()
 
         self.language = language
         if language.lower() == "en":
@@ -47,6 +45,7 @@ class JobScraper:
         self.job_ids_buffer = deque()
         self.job_ids_lock = asyncio.Lock()
         self.listing_pages_finished = False
+
         self.playwright = None
         self.browsers = []
         self.browser_sem = asyncio.Semaphore(self.max_browsers)
@@ -262,13 +261,18 @@ class JobScraper:
                         await asyncio.sleep(0.1)
                         continue
                 job_id = self.job_ids_buffer.popleft()
-            if await self.job_offer_manager.external_id_exists(job_id):
-                logger.info("Job offer already exists for job_id: %s", job_id)
+
+            detail_url = f"{self.base_url}detail/{job_id}/"
+
+            # Check if job offer with this URL already exists
+            existing_job = await self.job_offer_manager.get_job_offer_by_link(detail_url)
+            if existing_job:
+                logger.info("Job offer already exists for URL: %s", detail_url)
                 continue
+
             async with self.browser_sem:
                 browser = await self.playwright.chromium.launch(headless=True)
                 page = await browser.new_page()
-                detail_url = f"{self.base_url}detail/{job_id}/"
                 logger.info("Scraping detail page: %s", detail_url)
                 try:
                     await page.goto(detail_url)
@@ -314,26 +318,41 @@ class JobScraper:
                         quick_apply = bool(quick_apply_element)
                     except Exception:
                         pass
-                    job_offer_data = {
-                        "external_id": job_id,
+
+                    # Prepare job info dictionary
+                    job_info = {
                         "company_name": company_name,
                         "job_title": job_title,
                         "job_description": job_description,
-                        "job_link": detail_url,
                         "posted_date": publication_date,
-                        "work_location": work_location,
-                        "contract_type": contract_type,
+                        "location": work_location,
+                        "job_type": contract_type,
                         "activity_rate": activity_rate,
-                        "company_info": company_info,
-                        "company_contact": company_contact,
+                        "company_description": company_info,
+                        "contact_info": company_contact,
                         "company_url": company_url,
                         "categories": ", ".join(categories) if categories else None,
-                        "quick_apply": quick_apply
+                        "responsibilities": job_description or "",
+                        "requirements": job_description or "",
+                        "benefits": None,
+                        "salary_range": None,
+                        "application_deadline": None,
+                        "application_instructions": None,
+                        "additional_info": None
                     }
-                    if await self.job_offer_manager.add_job_offer(**job_offer_data):
-                        logger.info(f"Job offer added from detail page: {job_id}")
+
+                    # Add job offer to database
+                    job_offer = await self.job_offer_manager.add_job_offer(
+                        job_link=detail_url,
+                        job_info=job_info,
+                        job_site=JobSite.JOBUP,
+                        quick_apply=quick_apply
+                    )
+
+                    if job_offer:
+                        logger.info(f"Job offer added from detail page: {detail_url}")
                 except Exception as e:
-                    logger.error("Error scraping job detail for %s: %s", job_id, str(e))
+                    logger.error("Error scraping job detail for %s: %s", detail_url, str(e))
                 finally:
                     await page.close()
                     await browser.close()

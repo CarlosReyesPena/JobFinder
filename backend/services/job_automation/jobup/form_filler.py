@@ -1,11 +1,7 @@
 from playwright.async_api import async_playwright
-from sqlmodel import Session
-from data.managers.apply_form_manager import ApplyFormManager
-from data.managers.document_manager import DocumentManager
-from data.managers.cover_letter_manager import CoverLetterManager
-from data.managers.job_offer_manager import JobOfferManager
-from data.managers.application_manager import ApplicationManager
-from .login import BrowserSession
+from backend.data.managers import DocumentManager, JobOfferManager, ApplicationManager
+from backend.data.models import DocumentType
+from backend.services.job_automation.jobup.login import BrowserSession
 from langdetect import detect
 import tempfile
 from pathlib import Path
@@ -224,14 +220,14 @@ class FormChecker:
 
 
 class FormFiller:
-    def __init__(self, session: Session, user_id: int, log_level=logging.INFO):
+    def __init__(self,  user_id: int, log_level=logging.INFO):
         self.user_id = user_id
-        self.session = session
-        self.browser_session = BrowserSession(session, user_id)
+        self.browser_session = BrowserSession( user_id)
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(log_level)
-        self.apply_manager = ApplyFormManager(session)
-        self.application_manager = ApplicationManager(session)
+        self.document_manager = DocumentManager()
+        self.job_offer_manager = JobOfferManager()
+        self.application_manager = ApplicationManager()
 
     async def _sanitize_filename(self, filename: str) -> str:
         """Cleans filename of forbidden characters."""
@@ -269,7 +265,7 @@ class FormFiller:
     async def create_form_data(self, firstname, lastname, email, phone, zipcode,
                              gender, availability, work_permit, auto_answer_requirements="true"):
         """
-        Creates a new form_data record for the user in database.
+        Creates a new form_data document for the user in database.
         Example of form_data:
             {
                 "firstname": "Carlos",
@@ -295,12 +291,19 @@ class FormFiller:
             "auto_answer_requirements": auto_answer_requirements
         }
 
-        # Add form data to database
-        return await self.apply_manager.add_apply_form(
+        # Store form data as a document in the database
+        await self.document_manager.create_document(
             user_id=self.user_id,
-            site_name="JobUp",
-            form_data=form_data
+            document_type=DocumentType.APPLICATION_FORM,
+            name="jobup_form_data.json",
+            json_content=form_data,
+            metadata={
+                "site": "jobup.ch",
+                "form_type": "application_form"
+            }
         )
+
+        return form_data
 
     async def check_and_handle_login(self, page) -> bool:
         """
@@ -443,8 +446,8 @@ class FormFiller:
 
             # Upload reorganized files
             for file in files_to_upload:
-                section_head = f"div[data-cy='document-section-head-{file["type"]}']"
-                section_input = f"div[data-cy='document-section-{file["type"]}'] input[type='file']"
+                section_head = f"div[data-cy='document-section-head-{file['type']}']"
+                section_input = f"div[data-cy='document-section-{file['type']}'] input[type='file']"
 
                 temp_path = await self.upload_bytes_to_field(
                     page, file["name"], file["bytes"],
@@ -498,157 +501,192 @@ class FormFiller:
                 await asyncio.to_thread(os.remove, temp_file_path)
             raise
 
-    async def fill_apply_form(self, external_id, direct_apply: bool = False):
+    async def get_form_data(self):
         """
-        Loads form from database (via ApplyFormManager),
-        fills fields, checks what's missing and uploads documents.
+        Get the latest form data for the user.
         """
-        # Get form data
-        apply_form = await self.apply_manager.get_apply_form_by_user_and_site(self.user_id, "JobUp")
+        form_doc = await self.document_manager.get_last_document_by_type(
+            user_id=self.user_id,
+            document_type=DocumentType.APPLICATION_FORM
+        )
 
-        if not apply_form:
-            raise ValueError("No form found for this user.")
+        if not form_doc or not form_doc.json_content:
+            raise ValueError("No form data found for this user")
 
-        # Get data from database
-        form_data = apply_form.form_data
-        doc_manager = DocumentManager(self.session)
-        cover_letter_manager = CoverLetterManager(self.session)
-        job_offer_manager = JobOfferManager(self.session)
+        return form_doc.json_content
 
-        # Get documents
-        cv = await doc_manager.get_user_documents(self.user_id, "CV")
-        other_docs = await doc_manager.get_user_documents(self.user_id, "others")
+    async def fill_apply_form(self, job_link: str, direct_apply: bool = False):
+        """
+        Loads form from database, fills fields, checks what's missing and uploads documents.
+        """
+        try:
+            # Get form data
+            form_data = await self.get_form_data()
 
-        job_id = await job_offer_manager.get_id_by_external_id(external_id)
-        cover_letter = await cover_letter_manager.get_cover_letter_by_user_and_job_id(self.user_id, job_id)
-        letter_bytes = cover_letter.pdf_data if cover_letter else None
+            # Get job offer
+            job_offer = await self.job_offer_manager.get_job_offer_by_link(job_link)
+            if not job_offer:
+                raise ValueError(f"No job offer found with link: {job_link}")
 
-        job_offer = await job_offer_manager.get_job_offer_by_external_id(external_id)
+            # Extract job ID from the URL
+            external_id = job_link.split("/")[-1].strip("/")
+            if not external_id:
+                external_id = job_link.split("/")[-2]
 
-        letter_prefixes = {
-            'fr': 'Lettre',
-            'de': 'Bewerbungsschreiben',
-            'it': 'Lettera',
-            'rm': 'Brev'
-        }
-        prefix_letter = letter_prefixes.get(detect(job_offer.job_description), 'Letter')
+            # Get CV documents
+            cv = await self.document_manager.get_last_document_by_type(
+                user_id=self.user_id,
+                document_type=DocumentType.CV
+            )
 
-        # Prepare list of files to upload with their bytes
-        files_to_upload = []
+            # Get cover letter for this job
+            cover_letter = await self.document_manager.get_latest_cover_letter_for_job(
+                job_id=job_offer.id,
+                user_id=self.user_id,
+                document_type=DocumentType.COVER_LETTER
+            )
 
-        # Add CV if exists
-        if cv:
-            files_to_upload.append({
-                "type": "cv",
-                "name": await self._sanitize_filename(cv[0].name),
-                "bytes": cv[0].content
-            })
-
-
-        if letter_bytes:
-            if job_offer.company_name:
-                files_to_upload.append({
-                    "type": "motivation",
-                    "name": f"{prefix_letter}_{await self._sanitize_filename(job_offer.company_name)}.pdf",
-                    "bytes": letter_bytes
-                })
-            else:
-                files_to_upload.append({
-                    "type": "motivation",
-                    "name": f"{prefix_letter}_{await self._sanitize_filename(form_data.get('firstname'))}_{await self._sanitize_filename(form_data.get('lastname'))}.pdf",
-                    "bytes": letter_bytes
-                })
-
-        # Add other documents if they exist
-        if other_docs:
-            for doc in other_docs:
-                files_to_upload.append({
-                    "type": "other",
-                    "name": await self._sanitize_filename(doc.name),
-                    "bytes": doc.content
-                })
-
-        max_attempts = 3
-        current_attempt = 0
-
-        async with async_playwright() as p:
-            context = await self.browser_session.get_browser_context(p, headless=True)
-            page = await context.new_page()
-            form_checker = FormChecker(page)
-
-            while current_attempt < max_attempts:
-                current_attempt += 1
-                self.logger.info(f"Attempt {current_attempt}/{max_attempts} to fill JobUp form.")
-                tempfiles = []
-
+            # Get language for letter prefix
+            job_description = job_offer.job_info.get("job_description", "")
+            letter_language = "en"
+            if job_description:
                 try:
-                    await page.goto(f"https://www.jobup.ch/fr/application/create/{external_id}/", wait_until="load")
-                    self.logger.info("Navigation to JobUp form.")
+                    letter_language = detect(job_description)
+                except:
+                    letter_language = "en"
 
-                    # Check if job posting has expired
-                    if await page.is_visible("img[data-cy='application-expired-vacancy']"):
-                        self.logger.info("Job posting has expired, deleting offer and associated documents")
-                        if job_offer:
-                            job_offer_manager.delete_job_offer(job_offer.external_id)
-                            if cover_letter:
-                                cover_letter_manager.delete_cover_letter(cover_letter.id)
-                        return
+            letter_prefixes = {
+                'fr': 'Lettre',
+                'de': 'Bewerbungsschreiben',
+                'it': 'Lettera',
+                'en': 'Cover Letter',
+                'rm': 'Brev'
+            }
+            prefix_letter = letter_prefixes.get(letter_language, 'Letter')
 
-                    # Check if application has already been sent
-                    if await page.is_visible("img[alt='Application confirmation']"):
-                        self.logger.info("Application already sent for this job offer")
-                        if job_offer:
-                            # Use application manager to update status
-                            await self.application_manager.add_application(
-                                user_id=self.user_id,
-                                job_id=job_offer.id,
-                                application_status="Submitted"
-                            )
-                            self.logger.info(f"Job offer {external_id} marked as applied in database")
-                        return
+            # Prepare list of files to upload with their bytes
+            files_to_upload = []
 
-                    # Check login
-                    if not await self.check_and_handle_login(page):
-                        self.logger.warning("Login failed, retrying...")
-                        continue
+            # Add CV if exists
+            if cv:  # Get the first CV
+                files_to_upload.append({
+                    "type": "cv",
+                    "name": await self._sanitize_filename(cv.name),
+                    "bytes": cv.binary_content
+                })
 
-                    # Accept cookies if needed
-                    if await page.is_visible("button[data-cy='cookie-consent-modal-primary']"):
-                        await self.safe_click(page, "button[data-cy='cookie-consent-modal-primary']")
+            # Add cover letter if it exists
+            if cover_letter: # Get the first cover letter
+                company_name = job_offer.job_info.get("company_name", "")
 
-                    missing_fields, missing_files = await form_checker.verify_all_fields(form_data, files_to_upload)
+                letter_name = f"{prefix_letter}_{await self._sanitize_filename(company_name or 'Company')}.pdf"
 
+                if cover_letter.binary_content:
+                    files_to_upload.append({
+                        "type": "motivation",
+                        "name": letter_name,
+                        "bytes": cover_letter.binary_content
+                    })
 
-                    if missing_files:
-                        tempfiles = await self.fill_missing_files(page, missing_files)
+            # Get other documents like references
+            other_docs = await self.document_manager.get_user_documents(
+                user_id=self.user_id,
+                document_type=DocumentType.APPLICATION_DOCUMENT
+            )
 
-                    if missing_fields:
-                        await self.fill_missing_fields(page, form_data, missing_fields)
+            # Add other documents if they exist
+            for doc in other_docs:
+                if doc.binary_content:
+                    files_to_upload.append({
+                        "type": "other",
+                        "name": await self._sanitize_filename(doc.name),
+                        "bytes": doc.binary_content
+                    })
 
-                    # Wait for all uploads to complete
-                    await form_checker.wait_for_all_uploads(files_to_upload)
+            max_attempts = 3
+            current_attempt = 0
 
-                    missing_fields, missing_files = await form_checker.verify_all_fields(form_data, files_to_upload)
+            async with async_playwright() as p:
+                context = await self.browser_session.get_browser_context(p, headless=True)
+                page = await context.new_page()
+                form_checker = FormChecker(page)
 
-                    if not missing_fields and not missing_files:
-                        self.logger.info("Form completed successfully, submitting application.")
-                        await self.click_submit_button(page, direct_apply)
-                        await page.wait_for_load_state("networkidle", timeout=30000)
+                while current_attempt < max_attempts:
+                    current_attempt += 1
+                    self.logger.info(f"Attempt {current_attempt}/{max_attempts} to fill JobUp form.")
+                    tempfiles = []
 
+                    try:
+                        await page.goto(f"https://www.jobup.ch/fr/application/create/{external_id}/", wait_until="load")
+                        self.logger.info("Navigation to JobUp form.")
+
+                        # Check if job posting has expired
+                        if await page.is_visible("img[data-cy='application-expired-vacancy']"):
+                            self.logger.info("Job posting has expired, deleting offer and associated documents")
+                            if job_offer:
+                                await self.job_offer_manager.delete_job_offer(job_offer.id)
+                                # Delete associated documents
+                                if cover_letter:
+                                    await self.document_manager.delete_document(cover_letter.id)
+                            return
+
+                        # Check if application has already been sent
+                        if await page.is_visible("img[alt='Application confirmation']"):
+                            self.logger.info("Application already sent for this job offer")
+                            if job_offer:
+                                # Create application record with status submitted
+                                await self.application_manager.create_application(
+                                    user_id=self.user_id,
+                                    job_id=job_offer.id,
+                                    status="submitted"
+                                )
+                                self.logger.info(f"Job offer {job_link} marked as applied in database")
+                            return
+
+                        # Check login
+                        if not await self.check_and_handle_login(page):
+                            self.logger.warning("Login failed, retrying...")
+                            continue
+
+                        # Accept cookies if needed
+                        if await page.is_visible("button[data-cy='cookie-consent-modal-primary']"):
+                            await self.safe_click(page, "button[data-cy='cookie-consent-modal-primary']")
+
+                        missing_fields, missing_files = await form_checker.verify_all_fields(form_data, files_to_upload)
+
+                        if missing_files:
+                            tempfiles = await self.fill_missing_files(page, missing_files)
+
+                        if missing_fields:
+                            await self.fill_missing_fields(page, form_data, missing_fields)
+
+                        # Wait for all uploads to complete
+                        await form_checker.wait_for_all_uploads(files_to_upload)
+
+                        missing_fields, missing_files = await form_checker.verify_all_fields(form_data, files_to_upload)
+
+                        if not missing_fields and not missing_files:
+                            self.logger.info("Form completed successfully, submitting application.")
+                            await self.click_submit_button(page, direct_apply)
+                            await page.wait_for_load_state("networkidle", timeout=30000)
+
+                            for temp_file in tempfiles:
+                                if not await self.safe_file_cleanup(temp_file):
+                                    self.logger.error(f"Unable to delete {temp_file}")
+
+                            break
+
+                    except Exception as e:
+                        self.logger.error(f"Error during attempt {current_attempt}: {str(e)}")
+                        if current_attempt >= max_attempts:
+                            raise
+                    finally:
                         for temp_file in tempfiles:
-                            if not await self.safe_file_cleanup(temp_file):
-                                self.logger.error(f"Unable to delete {temp_file}")
+                            await self.safe_file_cleanup(temp_file)
 
-                        break
-
-                except Exception as e:
-                    self.logger.error(f"Error during attempt {current_attempt}: {str(e)}")
-                    if current_attempt >= max_attempts:
-                        raise
-                finally:
-
-                    for temp_file in tempfiles:
-                        await self.safe_file_cleanup(temp_file)
+        except Exception as e:
+            self.logger.error(f"Error filling apply form: {str(e)}")
+            raise
 
     async def click_submit_button(self, page, direct_apply: bool = False):
         """

@@ -1,132 +1,153 @@
-from typing import Any, Dict, Optional, Type
+from typing import Optional
 from pydantic import BaseModel
 import logging
-import asyncio
-import instructor
-from openai import OpenAI
-from core.settings import settings
+import os
+import dotenv
+from .baml_src.baml_client.async_client import b
+from .baml_src.baml_client.types import CoverLetterBody, CoverLetterRecipient, JobOfferStructure
+from .baml_src.baml_client import reset_baml_env_vars
 
-# Try to import Groq client if available.
-try:
-    from groq import Groq
-except ImportError:
-    Groq = None
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
+# Reset BAML environment variables with current environment
+reset_baml_env_vars(dict(os.environ))
 
 class LLMManager:
-    """
-    Central class for managing LLM API interactions using the instructor library.
-    
-    This class initializes clients for different providers (OpenAI, Groq, and Ollama)
-    using instructor's patching to support structured outputs via Pydantic models.
-    """
+    """Central class for managing LLM API interactions using BAML"""
 
     def __init__(self):
-        self.clients: Dict[str, Any] = {}
-        self.current_provider: Optional[str] = None
+        self._configure_logger()
+        self._check_api_keys()
+
+    def _configure_logger(self):
+        """Configure logging system"""
         self.logger = logging.getLogger("LLMManager")
         self.logger.setLevel(logging.INFO)
-        self._initialize_providers()  # Synchronous initialization
 
-    def _initialize_providers(self):
-        """Initialize LLM providers using instructor."""
-        try:
-            # OpenAI provider
-            if settings.OPENAI_API_KEY:
-                client_openai = instructor.from_openai(
-                    OpenAI(
-                        api_key=settings.OPENAI_API_KEY,
-                    )
-                )
-                client_openai.model = settings.OPENAI_MODEL
-                self.clients["openai"] = client_openai
+    def _check_api_keys(self):
+        """Check if necessary API keys are set in environment variables"""
+        required_keys = ["GOOGLE_API_KEY", "OPENROUTER_API_KEY"]
+        missing_keys = [key for key in required_keys if not os.environ.get(key)]
 
-            # Groq provider (if available)
-            if settings.GROQ_API_KEY and Groq is not None:
-                client_groq = instructor.patch(
-                    Groq(
-                        api_key=settings.GROQ_API_KEY,
-                    )
-                )
-                client_groq.model = settings.GROQ_MODEL
-                self.clients["groq"] = client_groq
-
-            # Ollama provider (using OpenAI compatibility)
-            if settings.OLLAMA_HOST:
-                client_ollama = instructor.from_openai(
-                    OpenAI(
-                        base_url=f"{settings.OLLAMA_HOST}/v1",
-                        api_key="ollama",  # dummy API key, required by the API but not used
-                    )
-                )
-                client_ollama.model = settings.OLLAMA_MODEL
-                self.clients["ollama"] = client_ollama
-
-            # Set the default provider based on settings or select the first available.
-            if settings.DEFAULT_PROVIDER in self.clients:
-                self.current_provider = settings.DEFAULT_PROVIDER
-            elif self.clients:
-                self.current_provider = next(iter(self.clients))
-            else:
-                self.logger.error("No providers were initialized.")
-        except Exception as e:
-            self.logger.error(f"Provider initialization error: {e}")
-            raise
-
-    async def switch_provider(self, provider_name: str):
-        """Switch the active LLM provider."""
-        if provider_name in self.clients:
-            self.current_provider = provider_name
+        if missing_keys:
+            self.logger.warning(f"Missing API keys in environment: {', '.join(missing_keys)}")
+            self.logger.info("Some LLM functionality may not work without these keys")
         else:
-            raise ValueError(f"Provider {provider_name} not configured.")
+            self.logger.info("All required API keys found in environment")
 
-    async def create_completion_async(
+    async def generate_cover_letter_body(
         self,
-        response_model: Optional[Type[BaseModel]],
-        messages: list,
-        max_tokens: Optional[int] = None,
-        retries: int = settings.DEFAULT_MAX_RETRIES,
-    ) -> Optional[BaseModel]:
+        user_profile: str,
+        job_description: str,
+        reference_letter: Optional[str] = None
+    ) -> Optional[CoverLetterBody]:
         """
-        Create a completion using the current LLM provider via instructor.
-
-        Parameters:
-            response_model: The Pydantic model for structured output. If None, returns the raw response.
-            messages: A list of message dictionaries (e.g., {"role": "user", "content": "..."})
-            max_tokens: Maximum tokens allowed for the generation.
-            retries: Number of retry attempts.
-
+        Generate cover letter body using BAML
+        Args:
+            user_profile (str): User's CV/profile text
+            job_description (str): Job description text
+            reference_letter (Optional[str]): Reference letter for style matching
         Returns:
-            A parsed response using the response_model if provided, otherwise the raw response; or None on failure.
+            Optional[CoverLetterBody]: Generated cover letter body or None if generation failed
         """
-        if not self.current_provider:
-            self.logger.error("No provider is configured.")
+        try:
+            self.logger.info("Generating cover letter body...")
+            result = await b.GenerateCoverLetter(
+                user_profile=user_profile,
+                job_description=job_description,
+                reference_letter=reference_letter
+            )
+            self.logger.info("Cover letter body generated successfully")
+            return result
+        except Exception as e:
+            self.logger.error(f"Error generating cover letter body: {e}")
             return None
 
-        client = self.clients[self.current_provider]
+    async def generate_recipient_info(
+        self,
+        job_description: str
+    ) -> Optional[CoverLetterRecipient]:
+        """
+        Extract recipient information from job description
+        Args:
+            job_description (str): Job description text
+        Returns:
+            Optional[CoverLetterRecipient]: Extracted recipient information or None if extraction failed
+        """
+        try:
+            self.logger.info("Extracting recipient information...")
+            result = await b.GenerateCoverRecipient(job_description=job_description)
+            self.logger.info("Recipient information extracted successfully")
+            return result
+        except Exception as e:
+            self.logger.error(f"Error extracting recipient information: {e}")
+            return None
 
-        def call_completion():
-            return client.chat.completions.create(
-                model=client.model,
-                messages=messages,
-                response_model=response_model,
-                max_tokens=max_tokens,
+    async def extract_job_offer(
+        self,
+        webpage_text: str
+    ) -> Optional[JobOfferStructure]:
+        """
+        Extract job offer structure from webpage text
+        Args:
+            webpage_text (str): Text content of the job offer webpage
+        Returns:
+            Optional[JobOfferStructure]: Extracted job offer structure or None if extraction failed
+        """
+        try:
+            self.logger.info("Extracting job offer structure...")
+            result = await b.ExtractJobOffer(webpage_text=webpage_text)
+            self.logger.info("Job offer structure extracted successfully")
+            return result
+        except Exception as e:
+            self.logger.error(f"Error extracting job offer structure: {e}")
+            return None
+
+    async def regenerate_text(
+        self,
+        original_text: str,
+        selected_text: str,
+        user_feedback: str,
+        user_profile: Optional[str] = None,
+        job_description: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Regenerate a portion of text based on user feedback
+        Args:
+            original_text (str): The full original text
+            selected_text (str): The portion of text to regenerate
+            user_feedback (str): User feedback for regeneration
+            user_profile (Optional[str]): User profile for context
+            job_description (Optional[str]): Job description for context
+        Returns:
+            Optional[str]: Regenerated text or None if regeneration failed
+        """
+        try:
+            self.logger.info("Regenerating text based on user feedback...")
+
+            # Prepare context
+            context = {}
+            if user_profile:
+                context["user_profile"] = user_profile
+            if job_description:
+                context["job_description"] = job_description
+
+            result = await b.RegenerateText(
+                original_text=original_text,
+                selected_text=selected_text,
+                user_feedback=user_feedback,
+                **context
             )
 
-        for attempt in range(retries):
-            try:
-                result = await asyncio.to_thread(call_completion)
-                return result
-            except Exception as e:
-                self.logger.error(
-                    f"Error with provider '{self.current_provider}' on attempt {attempt + 1}: {e}"
-                )
-                if attempt < retries - 1:
-                    await asyncio.sleep(2)
-                else:
-                    self.logger.error("Max retries reached. Returning None.")
-                    return None
+            self.logger.info("Text regenerated successfully")
+            return result.content
+        except Exception as e:
+            self.logger.error(f"Error regenerating text: {e}")
+            return None
+
 
 class LLMResponse(BaseModel):
-    """Base model for LLM responses."""
+    """Base model for LLM responses"""
     content: str
     metadata: Optional[dict] = None

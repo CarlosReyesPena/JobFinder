@@ -1,11 +1,8 @@
 import logging
-from sqlmodel import Session
-from data.managers.job_offer_manager import JobOfferManager
-from data.managers.cover_letter_manager import CoverLetterManager
-from data.managers.application_manager import ApplicationManager
-from services.generation.generator import CoverLetterGenerator
-from services.generation.pdf_builder import PDFCoverLetterGenerator
-from services.job_automation.jobup.form_filler import FormFiller
+from backend.data.managers import JobOfferManager, DocumentManager, ApplicationManager
+from backend.services.generation.generator import CoverLetterGenerator
+from backend.services.generation.pdf_builder import PDFCoverLetterGenerator
+from backend.services.job_automation.jobup.form_filler import FormFiller
 import asyncio
 from typing import List, Dict, Optional
 from dataclasses import dataclass
@@ -21,14 +18,13 @@ class ApplicationResult:
     timestamp: datetime = datetime.now()
 
 class AutoApply:
-    def __init__(self, session: Session, user_id: int):
-        self.session = session
+    def __init__(self, user_id: int):
         self.user_id = user_id
-        self.job_offer_manager = JobOfferManager(session)
-        self.cover_letter_manager = CoverLetterManager(session)
-        self.pdf_cover_builder = PDFCoverLetterGenerator(session)
-        self.application_manager = ApplicationManager(session)
-        self.cover_letter_generator = CoverLetterGenerator(session)
+        self.job_offer_manager = JobOfferManager()
+        self.document_manager = DocumentManager()
+        self.pdf_cover_builder = PDFCoverLetterGenerator()
+        self.application_manager = ApplicationManager()
+        self.cover_letter_generator = CoverLetterGenerator()
         self.logger = logging.getLogger(self.__class__.__name__)
 
     async def get_pending_quick_apply_jobs(self) -> List:
@@ -38,31 +34,35 @@ class AutoApply:
         Returns:
             List of job offers that are quick_apply enabled and not yet applied to
         """
-        job_offers = await self.job_offer_manager.get_job_offers_by_quick_apply()
+        job_offers = await self.job_offer_manager.get_quick_apply_job_offers()
         pending_jobs = []
 
         for job in job_offers:
-            existing = await self.application_manager.get_application_by_user_and_job(
-                user_id=self.user_id,
-                job_id=job.id
-            )
-            if not existing:
+            # Check if there's already an application for this job
+            applications = await self.application_manager.get_job_applications(job.id)
+            user_applications = [app for app in applications if app.user_id == self.user_id]
+            
+            if not user_applications:
                 pending_jobs.append(job)
 
         return pending_jobs
 
     async def process_single_job(self, job_offer) -> ApplicationResult:
         """Process a single job offer asynchronously."""
+        company_name = job_offer.job_info.get('company_name', 'Unknown Company')
+        job_title = job_offer.job_info.get('job_title', 'Unknown Position')
+        
         result = ApplicationResult(
             job_id=job_offer.id,
-            company_name=job_offer.company_name,
-            job_title=job_offer.job_title,
+            company_name=company_name,
+            job_title=job_title,
             status="Started"
         )
 
         try:
-            self.logger.info(f"Processing job: {job_offer.job_title} at {job_offer.company_name}")
+            self.logger.info(f"Processing job: {job_title} at {company_name}")
 
+            # Generate cover letter content
             cover_letter = await self.cover_letter_generator.generate_cover_letter(
                 user_id=self.user_id,
                 job_id=job_offer.id
@@ -73,9 +73,10 @@ class AutoApply:
                 result.error = "Cover letter generation failed"
                 return result
 
+            # Generate PDF version of the cover letter
             success, message = await self.pdf_cover_builder.generate_cover_letter_pdf(
                 user_id=self.user_id,
-                job_id=job_offer.id
+                document_id=cover_letter.id
             )
 
             if not success:
@@ -83,9 +84,10 @@ class AutoApply:
                 result.error = f"PDF generation failed: {message}"
                 return result
 
-            form_filler = FormFiller(self.session, self.user_id)
+            # Fill application form
+            form_filler = FormFiller(self.user_id)
             try:
-                await form_filler.fill_apply_form(job_offer.external_id)
+                await form_filler.fill_apply_form(job_offer.job_link, direct_apply=True)
             except Exception as e:
                 result.status = "Failed"
                 result.error = f"Form filling failed: {str(e)}"
@@ -97,14 +99,15 @@ class AutoApply:
                     if asyncio.iscoroutine(closing):
                         await closing
 
-            await self.application_manager.add_application(
+            # Create application record in database
+            await self.application_manager.create_application(
                 user_id=self.user_id,
                 job_id=job_offer.id,
-                application_status="Submitted"
+                status="submitted"
             )
 
             result.status = "Success"
-            self.logger.info(f"Successfully applied for: {job_offer.job_title}")
+            self.logger.info(f"Successfully applied for: {job_title}")
             return result
 
         except Exception as e:
@@ -195,7 +198,7 @@ class AutoApply:
         """
         try:
             # Get all quick apply jobs
-            all_quick_apply = await self.job_offer_manager.get_job_offers_by_quick_apply()
+            all_quick_apply = await self.job_offer_manager.get_quick_apply_job_offers()
             total_quick_apply = len(all_quick_apply)
 
             # Get pending jobs (not yet applied to)
@@ -246,45 +249,10 @@ class AutoApply:
                 }
             }
 
-async def run_auto_apply(user_id: int, session: Session, max_applications: Optional[int] = None, max_concurrent: int = 3):
+async def run_auto_apply(user_id: int, max_applications: Optional[int] = None, max_concurrent: int = 3):
     """Utility function to run auto apply process."""
-    auto_apply = AutoApply(session, user_id)
+    auto_apply = AutoApply( user_id)
     return await auto_apply.process_job_offers(
         max_applications=max_applications,
         max_concurrent=max_concurrent
     )
-
-if __name__ == "__main__":
-    import sys
-    from data.database import DatabaseManager
-
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger("AutoApply")
-
-    async def main():
-        try:
-            user_id = int(sys.argv[1])
-            max_applications = int(sys.argv[2]) if len(sys.argv) > 2 else None
-
-            db_manager = DatabaseManager()
-            async with db_manager.get_session() as session:
-                results = await run_auto_apply(
-                    user_id=user_id,
-                    session=session,
-                    max_applications=max_applications
-                )
-
-                print("\nApplication Results Summary:")
-                print(f"Total Jobs: {results['summary']['total']}")
-                print(f"Successful: {results['summary']['successful']}")
-                print(f"Failed: {results['summary']['failed']}")
-                print(f"Errors: {results['summary']['errors']}")
-
-        except IndexError:
-            logger.error("Please provide a user ID as the first argument.")
-        except ValueError:
-            logger.error("Invalid argument. Please provide a valid user ID and optionally a maximum number of applications.")
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-
-    asyncio.run(main())
